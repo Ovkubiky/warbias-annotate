@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#eef0f4">
+<title>WarBias Swipe</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌻</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+  <div class="top">
+    <button class="mode" id="modeBtn" aria-haspopup="dialog">Усе ▾</button>
+    <span class="count" id="count" title="Ваші картки">0</span>
+    <div class="progress" title="Прогрес команди"><i id="prog" style="width:0%"></i></div>
+    <span class="sync" id="sync"></span>
+    <button class="ib" id="rotBtn" aria-pressed="true" aria-label="Луг" title="Луг">🧠</button>
+    <button class="ib" id="trophyBtn" aria-label="Досягнення" title="Досягнення">🏆</button>
+    <button class="ib" id="helpBtn" aria-label="Як оцінювати" title="Як оцінювати">?</button>
+  </div>
+
+  <div class="stage" id="stage"></div>
+
+  <div class="actions">
+    <button class="act no" id="noBtn" aria-label="Є проблема">✕</button>
+    <button class="act undo" id="undoBtn" aria-label="Повернути попередню картку">↩</button>
+    <button class="act yes" id="yesBtn" aria-label="Надіслати">✓</button>
+  </div>
+
+  <div class="rot" id="rot">
+    <canvas id="cv"></canvas><div class="term" id="term" hidden></div>
+    <button class="rot-x" id="rotX" aria-label="Сховати панель">✕</button>
+    <div class="rot-badges"><span class="rot-count" id="rotCount">🌱 0</span><button class="rot-bq" id="rotBq" aria-label="Букет">💐 0</button></div>
+    <span class="rot-name" id="rotName">Луг</span>
+    <button class="rot-shuffle" id="rotShuffle" aria-label="Інша сцена" title="Інша сцена"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg></button>
+  </div>
+</div>
+<script src="config.js"></script>
+<script src="logic.js"></script>
+<script src="sample-data.js"></script>
+<script src="api.js"></script>
+<script src="app.js"></script>
+<script src="meadow.js"></script>
+</body>
+</html>
