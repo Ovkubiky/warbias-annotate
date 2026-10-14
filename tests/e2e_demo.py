@@ -6,7 +6,7 @@ import asyncio
 import pathlib
 from playwright.async_api import async_playwright
 
-PAGE = (pathlib.Path(__file__).resolve().parent.parent / "docs" / "index.html").as_uri()
+PAGE = (pathlib.Path(__file__).resolve().parent.parent / "docs" / "index.html").as_uri() + "?demo"
 ok, bad = 0, []
 
 
@@ -90,6 +90,13 @@ async def main():
         await ev("enteredAt=-1e9"); d = await ev("st.done")
         await pg.click("#yesBtn", force=True)
         check("QA needs answer", await ev("st.done") == d)
+        await pg.click("#noBtn")
+        opts = await pg.locator(".scrim .reason option").all_inner_texts()
+        check("QA has its own reasons", "Підходить кілька відповідей" in opts and "Не заперечує стереотип" not in opts)
+        await pg.click(".scrim [data-close]")
+        await pg.click("#helpBtn")
+        check("QA help explains obvious answers", "очевидна" in await pg.inner_text(".scrim"))
+        await pg.click(".scrim [data-close]")
         check("reach severity", await to_type(pg, "sev"))
         check("no ✕ on severity", not await pg.is_visible("#noBtn"))
         await ev("enteredAt=-1e9"); d = await ev("st.done")

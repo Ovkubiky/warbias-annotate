@@ -6,7 +6,11 @@ const LEVELS = [
 const ENDS = ["Побутове упередження", "Виправдовує переслідування"];
 const ACTOR = { veteran: "Ветерани", idp: "ВПО" };
 const MODES = [["all", "Усе разом", "Усе", "Картки йдуть упереміш"], ["tri", "Трійки", "Трійки", "S · C · U"], ["qa", "Питання", "Питання", "Відповідь і якість"], ["sev", "Небезпечність", "Небезпечність", "Наскільки небезпечний стереотип"]];
-const REASONS = ["Граматика чи правопис", "Звучить неприродно", "Не заперечує стереотип", "Натякає на стереотип", "Інша група або зміст"];
+// typical problems differ by card type
+const REASONS = {
+  tri: ["Граматика чи правопис", "Звучить неприродно", "Не заперечує стереотип", "Натякає на стереотип", "Інша група або зміст"],
+  qa: ["Підходить кілька відповідей", "Жодна відповідь не підходить", "Опис суперечить сам собі", "З опису неможливо визначити відповідь", "Звучить неприродно чи граматика"]
+};
 
 /* ---------- small helpers ---------- */
 const $ = s => document.querySelector(s);
@@ -21,12 +25,14 @@ function sheet(html, onMount) {
   document.body.appendChild(s); onMount && onMount(s);
 }
 
-let myReasons = (() => { try { return JSON.parse(ls("my-reasons") || "[]"); } catch (_) { return []; } })();
+const myReasonsFor = t => { try { return JSON.parse(ls("my-reasons-" + t) || "[]"); } catch (_) { return []; } };
 function rememberReason(full) {
+  const t = st.cur ? st.cur.type : "tri", typical = REASONS[t] || [];
+  let myReasons = myReasonsFor(t);
   const r = full.split(" — ")[0].trim(); // keep the category part, not the per-sentence detail
-  if (!r || REASONS.includes(r) || myReasons.includes(r)) return;
+  if (!r || typical.includes(r) || myReasons.includes(r)) return;
   myReasons.unshift(r); myReasons = myReasons.slice(0, 8);
-  ls("my-reasons", JSON.stringify(myReasons));
+  ls("my-reasons-" + t, JSON.stringify(myReasons));
 }
 
 /* ---------- state ---------- */
@@ -130,9 +136,10 @@ async function advance() {
 
 /* ---------- rendering ---------- */
 function reasonSelect(placeholder) {
+  const t = st.cur ? st.cur.type : "tri", typical = REASONS[t] || REASONS.tri, myReasons = myReasonsFor(t);
   const o = r => `<option value="${esc(r)}">${esc(r)}</option>`;
   return `<select class="reason"><option value="">${placeholder}</option>
-    <optgroup label="Типові">${REASONS.map(o).join("")}</optgroup>
+    <optgroup label="Типові">${typical.map(o).join("")}</optgroup>
     ${myReasons.length ? `<optgroup label="Ваші попередні">${myReasons.map(o).join("")}</optgroup>` : ""}
     <option value="__other">Інше — написати…</option></select>
     <div class="note-row" hidden><textarea class="other" rows="1" placeholder="Опишіть коротко" enterkeyhint="done"></textarea><button class="add" type="button">Додати</button></div>`;
@@ -499,6 +506,17 @@ function wireSlider() {
 }
 
 /* ---------- sheets: help, rubric, achievements, modes ---------- */
+function openQaHelp() {
+  sheet(`<h3>Картки-питання</h3>
+    <p>Це тест для моделі: дві людини, одна з них ВПО чи ветеран, і питання, хто з них щось зробив. Відповідь часто очевидна — це нормально. Ми перевіряємо, що питання однозначне і правильна відповідь справді одна. Модель на таких питаннях нерідко помиляється через стереотип.</p>
+    <div class="list">
+      <div class="li"><span class="e">🅰️</span><b>Оберіть відповідь</b><span>Лише за описом. Якщо опис не дає відповіді — «Недостатньо інформації».</span></div>
+      <div class="li"><span class="e">👉</span><b>Свайп праворуч</b><span>Приклад якісний. Так буде майже завжди.</span></div>
+      <div class="li"><span class="e">✕</span><b>✕ на тексті опису</b><span>Окремі слова звучать неприродно чи з помилкою, а саме питання нормальне.</span></div>
+      <div class="li"><span class="e">👈</span><b>Свайп ліворуч</b><span>Лише якщо питання зламане: підходить кілька відповідей, жодна, або опис суперечить сам собі. Відповідати тоді не обов'язково.</span></div>
+    </div>
+    <button class="btn" data-close>Зрозуміло</button>`);
+}
 function openRubric() {
   sheet(`<h3>Небезпечність стереотипу</h3><p>Оцінюйте сам стереотип, а не формулювання. Запитайте себе: що станеться з людиною, якщо в це повірять? Тягніть смайлик так далеко, як вважаєте за потрібне.</p>
     <div class="list">
@@ -509,6 +527,7 @@ function openRubric() {
 }
 $("#helpBtn").onclick = () => {
   if (st.cur && st.cur.type === "sev") return openRubric();
+  if (st.cur && st.cur.type === "qa") return openQaHelp();
   sheet(`<h3>Як оцінювати</h3><div class="list">
     <div class="li"><span class="e">✏️</span><b>Торкніться речення</b><span>Одразу редагуйте. Змінене речення стає жовтим.</span></div>
     <div class="li"><span class="e">✓</span><b>Галочка в кутку</b><span>Речення правильне.</span></div>
