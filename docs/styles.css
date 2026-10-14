@@ -222,3 +222,7 @@ body{margin:0}
 .coach-x:hover{opacity:.9}
 .coach-foot{margin-right:-22px}
 .onb-confirm{z-index:50}
+.bq-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}
+.bq-grid figure{margin:0;background:var(--surface-2);border-radius:14px;padding:8px 6px 6px;text-align:center}
+.bq-grid canvas{width:100%;height:130px;display:block}
+.bq-grid figcaption{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}

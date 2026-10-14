@@ -5,9 +5,21 @@ const cv=$("#cv"), ctx=cv.getContext("2d"), term=$("#term");
 let sceneI=0, rotOn=true, raf, termTimer, scene=null, W=0, H=0, last=0;
 const KEY="wb2-"; // new prefix: settings from earlier prototype versions are ignored, everyone starts with the meadow open
 function store(k,v){ try{ if(v===undefined) return localStorage.getItem(KEY+k); localStorage.setItem(KEY+k,v);}catch(_){return null} }
-let grown=0; // flowers grown = cards finished on this device; first visit starts with one per card already done
-function initGrown(done){ grown = store("rot-n")===null ? done : (+store("rot-n")||0); }
-let bouquet=(()=>{ try{ return JSON.parse(store("rot-bq")||"[]"); }catch(_){ return []; } })(); // picked flower kinds
+/* One flower per finished card: "yes" = sunflower (accepted), "no" = cornflower (found a problem).
+ * Every 10 flowers make a bouquet; the meadow itself never shrinks. */
+const PER_BOUQUET = 10;
+let kinds = [];
+function saveKinds(){ store("rot-kinds", JSON.stringify(kinds)); }
+function initGrown(done){
+  try { kinds = JSON.parse(store("rot-kinds") || "null"); } catch (_) { kinds = null; }
+  if (!Array.isArray(kinds)) {   // first visit on this device: one flower per card already done
+    kinds = Array.from({ length: done }, (_, i) => (hash01(i * 7 + 3) < .82 ? "yes" : "no"));
+    saveKinds();
+  }
+}
+const bouquets = () => Math.floor(kinds.length / PER_BOUQUET);
+// stable pseudo-random numbers per flower index, so the meadow looks the same after a reload
+function hash01(n){ let x = (n + 1) * 2654435761 % 4294967296; x ^= x >>> 15; x = Math.imul(x, 2246822519) >>> 0; return (x % 10000) / 10000; }
 const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 let C={};
 function readColors(){ C={yes:css("--fl-yes"),no:css("--fl-no"),grass:css("--fl-grass"),ink:css("--ink"),soft:css("--line"),ring:css("--muted")}; }
@@ -16,8 +28,10 @@ function fit(){ const r=cv.getBoundingClientRect(), d=devicePixelRatio||1; W=r.w
 const rnd=(a,b)=>a+Math.random()*(b-a);
 function updBadges(){
   const m=SCENES[sceneI][0]==="meadow";
-  $("#rotCount").hidden=!m; $("#rotCount").textContent=`🌱 ${grown}`;
-  $("#rotBq").hidden=!m; $("#rotBq").textContent=`💐 ${bouquet.length}`;
+  $("#rotCount").hidden=!m; $("#rotCount").textContent=`🌱 ${kinds.length}`;
+  $("#rotCount").title="Квітки на лузі: одна за кожну картку";
+  $("#rotBq").hidden=!m; $("#rotBq").textContent=`💐 ${bouquets()}`;
+  $("#rotBq").title=`Букети: кожні ${PER_BOUQUET} карток`;
 }
 
 function drawFlower(g,x,y,s,kind,rot=0){
@@ -37,30 +51,37 @@ const Scenes={
     init(){
       this.t=0; this.gust=0; this.hx=null; this.ht=0; this.fly=[];
       this.blades=Array.from({length:Math.ceil(W/5)},(_,i)=>({x:i*5+rnd(-2,2),h:rnd(8,24)}));
-      const n=Math.max(0,Math.min(grown-bouquet.length,40));
-      this.f=Array.from({length:n},()=>({x:rnd(.04,.96)*W,h:rnd(26,H*.62),g:1,k:Math.random()<.8?"yes":"no"}));
+      const from=Math.max(0,kinds.length-60);   // the newest 60 flowers fit on screen
+      this.f=kinds.slice(from).map((k,j)=>this.flower(from+j,k,1));
     },
-    on(dir){ grown++; store("rot-n",grown); this.gust=1;
-      this.f.push({x:rnd(.04,.96)*W,h:rnd(26,H*.62),g:0,k:dir==="yes"?"yes":"no"}); if(this.f.length>60) this.f.shift(); updBadges(); },
+    flower(i,k,g){ return {i,k,g,x:(.04+.92*hash01(i*3+1))*W,h:26+(H*.62-26)*hash01(i*5+2),wob:0}; },
+    on(dir){
+      const k=dir==="yes"?"yes":"no";
+      kinds.push(k); saveKinds(); this.gust=1;
+      this.f.push(this.flower(kinds.length-1,k,0)); if(this.f.length>60) this.f.shift();
+      if(kinds.length%PER_BOUQUET===0) this.gather();
+      updBadges();
+    },
+    gather(){ // copies of the last 10 flowers fly into the bouquet badge; the meadow keeps them
+      const r=$("#rotBq").getBoundingClientRect(), c=cv.getBoundingClientRect();
+      this.f.slice(-PER_BOUQUET).forEach((o,n)=>{ const h=this.head(o,true);
+        this.fly.push({x:h.x,y:h.y,tx:r.left-c.left+r.width/2,ty:r.top-c.top+r.height/2,p:-n*.06-.35,k:o.k}); });
+      setTimeout(()=>toast(`💐 Букет №${bouquets()} зібрано — ${PER_BOUQUET} карток!`),700);
+    },
     head(o,still){ const e=1-Math.pow(1-o.g,3); return {x:o.x+this.sway(o.x,still)*1.6, y:H-6-o.h*e}; },
     sway(x,still){ const hx=this.hx, ht=still?0:this.ht;
       return Math.sin(this.t*1.8+x*.025)*(3+this.gust*7) + (ht&&hx!=null ? Math.sign(x-hx)*Math.exp(-((x-hx)**2)/900)*14*ht : 0); },
-    tap(x,y){ // pick the flower under the finger into the bouquet
+    tap(x,y){ // a tapped flower bobs; elsewhere the grass parts
       let best=null, bd=28*28;
       this.f.forEach(o=>{ if(o.g<.9) return; const h=this.head(o,true), d=(h.x-x)**2+(h.y-y)**2; if(d<bd){bd=d;best=o;} });
-      if(!best){ this.hx=x; this.ht=1; return; }
-      const h=this.head(best), r=$("#rotBq").getBoundingClientRect(), c=cv.getBoundingClientRect();
-      this.f.splice(this.f.indexOf(best),1);
-      this.fly.push({x:h.x,y:h.y,tx:r.left-c.left+r.width/2,ty:r.top-c.top+r.height/2,p:0,k:best.k});
+      if(best) best.wob=1; else { this.hx=x; this.ht=1; }
     },
-    move(x,y){ // flowers lean away from the pointer, but not when it is right on a flower head (so you can pick it)
-      if(y!=null&&this.f.some(o=>{const h=this.head(o,true);return (h.x-x)**2+(h.y-y)**2<28*28;})) return;
-      this.hx=x; this.ht=1; },
+    move(x){ this.hx=x; this.ht=1; },
     step(dt){
       this.t+=dt; this.gust=Math.max(0,this.gust-dt*.8); this.ht=Math.max(0,this.ht-dt*1.5);
-      this.f.forEach(o=>o.g=Math.min(1,o.g+dt*1.6));
-      this.fly.forEach(o=>{ o.p+=dt*2.2; if(o.p>=1&&!o.done){ o.done=1; bouquet.push(o.k); store("rot-bq",JSON.stringify(bouquet)); updBadges(); } });
-      this.fly=this.fly.filter(o=>!o.done);
+      this.f.forEach(o=>{ o.g=Math.min(1,o.g+dt*1.6); o.wob=Math.max(0,o.wob-dt*1.4); });
+      this.fly.forEach(o=>{ o.p+=dt*1.6; });
+      this.fly=this.fly.filter(o=>o.p<1);
     },
     draw(){
       const base=H-6;
@@ -69,9 +90,9 @@ const Scenes={
       this.f.forEach(o=>{
         const h=this.head(o);
         ctx.strokeStyle=C.grass; ctx.lineWidth=1.3; ctx.beginPath(); ctx.moveTo(o.x,base); ctx.quadraticCurveTo(o.x,(base+h.y)/2,h.x,h.y); ctx.stroke();
-        if(o.g>.6) drawFlower(ctx,h.x,h.y,(o.g-.6)/.4,o.k,this.t*.1);
+        if(o.g>.6) drawFlower(ctx,h.x+Math.sin(o.wob*18)*4*o.wob,h.y,(o.g-.6)/.4*(1+o.wob*.5),o.k,this.t*.1+o.wob*3);
       });
-      this.fly.forEach(o=>{ const e=o.p*o.p*(3-2*o.p); drawFlower(ctx,o.x+(o.tx-o.x)*e, o.y+(o.ty-o.y)*e-Math.sin(e*Math.PI)*20, 1-e*.4, o.k, o.p*4); });
+      this.fly.forEach(o=>{ if(o.p<=0) return; const e=o.p*o.p*(3-2*o.p); drawFlower(ctx,o.x+(o.tx-o.x)*e, o.y+(o.ty-o.y)*e-Math.sin(e*Math.PI)*20, 1-e*.4, o.k, o.p*4); });
       ctx.fillStyle=C.soft; ctx.fillRect(0,base,W,6);
     }
   },
@@ -80,7 +101,7 @@ const Scenes={
     ring(x,y,c,a){ this.r.push({x,y,r:0,max:rnd(60,110),c,a}); },
     tap(x,y){ const c=Math.random()<.5?C.yes:C.no; this.ring(x,y,c,.9); setTimeout(()=>this.ring(x,y,c,.5),200); },
     move(x,y,down){ if(down&&Math.random()<.25) this.ring(x,y,C.no,.5); },
-    on(dir){ grown++; store("rot-n",grown); const x=rnd(.15,.85)*W, y=rnd(.25,.75)*H, c=dir==="yes"?C.yes:C.no; this.ring(x,y,c,1); setTimeout(()=>this.ring(x,y,c,.6),200); setTimeout(()=>this.ring(x,y,c,.35),400); },
+    on(dir){ kinds.push(dir==="yes"?"yes":"no"); saveKinds(); updBadges(); const x=rnd(.15,.85)*W, y=rnd(.25,.75)*H, c=dir==="yes"?C.yes:C.no; this.ring(x,y,c,1); setTimeout(()=>this.ring(x,y,c,.6),200); setTimeout(()=>this.ring(x,y,c,.35),400); },
     step(dt){
       this.next-=dt; if(this.next<=0){ this.next=rnd(.8,1.6); this.ring(rnd(0,W),rnd(0,H),C.ring,.25); }
       this.r.forEach(o=>o.r+=dt*65); this.r=this.r.filter(o=>o.r<o.max);
@@ -108,13 +129,13 @@ function loop(ts){
   raf=requestAnimationFrame(loop);
 }
 function rotUndo(){
-  grown=Math.max(0,grown-1); store("rot-n",grown);
+  kinds.pop(); saveKinds();
   if(scene===Scenes.meadow&&scene.f.length) scene.f.pop();
   updBadges();
 }
 function rotEvent(dir){
   if(rotOn&&scene){ scene.on(dir); return; }
-  grown++; store("rot-n",grown); // keep growing even when the strip is hidden
+  kinds.push(dir==="yes"?"yes":"no"); saveKinds();   // keep growing even when the strip is hidden
 }
 function stopRot(){ cancelAnimationFrame(raf); clearInterval(termTimer); last=0; }
 function playRot(){
@@ -134,27 +155,30 @@ addEventListener("pointermove",e=>{ if(scene===Scenes.meadow&&dragged){ const c=
 const TAPLINES=["> ще одну трійку, будь ласка","⏺ Відчуваю стереотип у реченні U…","✻ Медитую над контрстереотипом… (3s)","⏺ Read(твої_думки.txt)","  ⎿  α підвищилось на 0.01"];
 term.addEventListener("pointerdown",()=>{ const d=document.createElement("div"); d.className="c"; d.textContent=TAPLINES[Math.random()*TAPLINES.length|0]; term.appendChild(d); while(term.scrollHeight>term.clientHeight&&term.firstChild) term.firstChild.remove(); });
 
-/* bouquet */
-function drawBouquet(c,list){
+/* bouquets: every 10 cards, drawn from that batch's flowers */
+function drawBouquet(c,list,seed){
   const d=devicePixelRatio||1, w=c.clientWidth, h=c.clientHeight; c.width=w*d; c.height=h*d;
   const g=c.getContext("2d"); g.setTransform(d,0,0,d,0,0);
-  const bx=w/2, by=h-30, n=list.length;
-  g.strokeStyle=C.grass; g.lineWidth=1.4;
-  const heads=list.map((k,i)=>{ const a=(n<2?0:(i/(n-1)-.5))*Math.min(1.1,.25*n) + rnd(-.06,.06), len=rnd(h*.5,h*.66); return {k,x:bx+Math.sin(a)*len,y:by-Math.cos(a)*len}; });
-  heads.forEach(p=>{ g.beginPath(); g.moveTo(bx+rnd(-3,3),by+18); g.quadraticCurveTo(bx,by-10,p.x,p.y); g.stroke(); });
-  heads.sort((a,b)=>b.y-a.y).forEach(p=>drawFlower(g,p.x,p.y,2.6,p.k,rnd(0,6)));
-  g.fillStyle=css("--accent"); g.beginPath(); g.moveTo(bx-14,by-4); g.lineTo(bx+14,by-4); g.lineTo(bx+9,by+10); g.lineTo(bx-9,by+10); g.closePath(); g.fill();
+  const bx=w/2, by=h-18, n=list.length, s=Math.min(w,h)/110;
+  const r=k=>hash01(seed*31+k);
+  g.strokeStyle=C.grass; g.lineWidth=1.2;
+  const heads=list.map((k,i)=>{ const a=(n<2?0:(i/(n-1)-.5))*1.15+(r(i)-.5)*.12, len=h*(.5+.18*r(i+50)); return {k,i,x:bx+Math.sin(a)*len,y:by-Math.cos(a)*len}; });
+  heads.forEach(p=>{ g.beginPath(); g.moveTo(bx+(r(p.i+90)-.5)*5,by+10); g.quadraticCurveTo(bx,by-8,p.x,p.y); g.stroke(); });
+  heads.sort((a,b)=>b.y-a.y).forEach(p=>drawFlower(g,p.x,p.y,1.9*s,p.k,r(p.i+7)*6));
+  g.fillStyle=css("--accent"); g.beginPath(); g.moveTo(bx-10*s,by-3); g.lineTo(bx+10*s,by-3); g.lineTo(bx+6*s,by+8*s); g.lineTo(bx-6*s,by+8*s); g.closePath(); g.fill();
 }
 const plural=(n,one,few,many)=>{ const m10=n%10, m100=n%100; return n+" "+(m10===1&&m100!==11?one:(m10>=2&&m10<=4&&(m100<10||m100>=20)?few:many)); };
 $("#rotBq").onclick=()=>{
-  const nYes=bouquet.filter(k=>k==="yes").length, nNo=bouquet.length-nYes;
-  if(!bouquet.length){ toast("Торкніться квітки на лузі, щоб зірвати її в букет"); return; }
-  sheet(`<h3>Ваш букет</h3>
-    <canvas id="bqCanvas" style="width:100%;height:260px;display:block"></canvas>
-    <p>${plural(bouquet.length,"квітка","квітки","квітів")}: ${plural(nYes,"соняшник","соняшники","соняшників")} (прийняті картки) і ${plural(nNo,"волошка","волошки","волошок")} (знайдені проблеми). Кожна квітка — одна перевірена картка.</p>
+  const nb=bouquets(), left=PER_BOUQUET-kinds.length%PER_BOUQUET;
+  if(!nb){ toast(`Перший букет — після ${PER_BOUQUET} карток. Ще ${left}!`); return; }
+  const shown=Array.from({length:Math.min(nb,24)},(_,j)=>nb-1-j);   // newest first
+  sheet(`<h3>Ваші букети</h3>
+    <p>Кожні ${PER_BOUQUET} карток складаються в букет: 🌻 соняшник — прийнята картка, синя волошка — знайдена проблема. До наступного — ${plural(left,"картка","картки","карток")}.</p>
+    <div class="bq-grid">${shown.map(b=>{ const l=kinds.slice(b*PER_BOUQUET,(b+1)*PER_BOUQUET), no=l.filter(k=>k==="no").length;
+      return `<figure><canvas data-b="${b}"></canvas><figcaption>№${b+1} · 🌻 ${l.length-no} · 💠 ${no}</figcaption></figure>`; }).join("")}</div>
+    ${nb>shown.length?`<p>…і ще ${plural(nb-shown.length,"букет","букети","букетів")} раніше.</p>`:""}
     <button class="btn" data-close>Закрити</button>`,
-  sh=>{ readColors(); drawBouquet(sh.querySelector("#bqCanvas"),bouquet);
-  });
+  sh=>{ readColors(); sh.querySelectorAll("canvas[data-b]").forEach(c=>{ const b=+c.dataset.b; drawBouquet(c,kinds.slice(b*PER_BOUQUET,(b+1)*PER_BOUQUET),b); }); });
 };
 
 $("#rotShuffle").onclick=()=>{ sceneI=(sceneI+1)%SCENES.length; store("rot-ch",sceneI); playRot(); };
