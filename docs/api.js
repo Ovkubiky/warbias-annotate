@@ -21,7 +21,8 @@ function RemoteApi(url, token) {
     next: (mode, exclude, count) => call("next", { mode, exclude, count }),
     submit: (reviews) => call("submit", { reviews }),
     undo: (review_id) => call("undo", { review_id }),
-    board: () => call("board", {})
+    board: () => call("board", {}),
+    onboarded: (results) => call("onboarded", { results })
   };
 }
 
@@ -49,7 +50,8 @@ function DemoApi() {
   const wait = (v) => new Promise(r => setTimeout(() => r(v), 250));
   return {
     demo: true,
-    hello: () => wait({ ok: true, me, config: { dwell_ms: 3000, break_every: 25 }, stats: stats() }),
+    hello: () => wait({ ok: true, me: { ...me, onboarded: !!localStorage.getItem("wb-demo-onboarded") }, config: { dwell_ms: 3000, break_every: 25 }, stats: stats() }),
+    onboarded: (results) => { try { localStorage.setItem("wb-demo-onboarded", JSON.stringify(results)); } catch (_) {} return wait({ ok: true }); },
     next: (mode, exclude, count) => {
       const picked = pickNext(items, all(), {}, { annotator: me.id, mode, exclude, count: count || 3 });
       return wait({ ok: true, cards: picked.map(p => ({ item_id: p.item_id, type: p.type, payload: p.payload })), remaining: stats().remaining });

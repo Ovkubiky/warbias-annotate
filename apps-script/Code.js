@@ -6,7 +6,7 @@
 
 var TABS = {
   config: ['key', 'value', 'note'],
-  annotators: ['id', 'name', 'token', 'link', 'active', 'created'],
+  annotators: ['id', 'name', 'token', 'link', 'active', 'created', 'onboarded', 'practice'],
   items: ['item_id', 'type', 'gold', 'group', 'payload'],
   reviews: ['review_id', 'ts', 'day', 'annotator', 'item_id', 'type', 'outcome', 'answer', 'raw', 'position', 'session', 'dwell_ms', 'result', 'undone']
 };
@@ -134,6 +134,7 @@ function handle_(req) {
       case 'submit': return submit_(me, req);
       case 'undo': return undo_(me, req);
       case 'board': return board_(me);
+      case 'onboarded': return onboarded_(me, req);
     }
     return { ok: false, error: 'unknown_action' };
   } catch (err) {
@@ -144,7 +145,7 @@ function handle_(req) {
 function hello_(me) {
   var c = config_();
   return {
-    ok: true, me: { id: me.id, name: me.name },
+    ok: true, me: { id: me.id, name: me.name, onboarded: !!me.onboarded },
     config: { dwell_ms: +c.dwell_ms || 3000, break_every: +c.break_every || 25 },
     stats: stats_(me.id)
   };
@@ -209,6 +210,27 @@ function undo_(me, req) {
   if (sh.getRange(row, 4).getValue() !== me.id) return { ok: false, error: 'not_yours' };
   sh.getRange(row, TABS.reviews.indexOf('undone') + 1).setValue(true);
   return { ok: true, found: true, stats: stats_(me.id) };
+}
+
+/** Remember that this person finished (or skipped) the walkthrough, with their practice answers. */
+function onboarded_(me, req) {
+  var sh = ss_().getSheetByName('annotators');
+  var head = ensureCols_(sh, ['onboarded', 'practice']);
+  var ids = sh.getRange(2, 1, Math.max(1, sh.getLastRow() - 1), 1).getValues().map(function (r) { return r[0]; });
+  var i = ids.indexOf(me.id);
+  if (i < 0) return { ok: false, error: 'not_found' };
+  sh.getRange(i + 2, head.indexOf('onboarded') + 1).setValue(new Date());
+  sh.getRange(i + 2, head.indexOf('practice') + 1).setValue(JSON.stringify(req.results || {}));
+  return { ok: true };
+}
+
+/** Add missing header columns to an existing sheet (older setups). Returns the header row. */
+function ensureCols_(sh, cols) {
+  var head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  cols.forEach(function (c) {
+    if (head.indexOf(c) < 0) { head.push(c); sh.getRange(1, head.length).setValue(c).setFontWeight('bold'); }
+  });
+  return head;
 }
 
 function board_(me) {

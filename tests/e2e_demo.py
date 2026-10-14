@@ -43,6 +43,7 @@ async def main():
     async with async_playwright() as p:
         b = await p.chromium.launch()
         ctx = await b.new_context(viewport={"width": 390, "height": 844})
+        await ctx.add_init_script("localStorage.setItem('wb-demo-onboarded', '{}')")  # onboarding has its own test
         pg = await ctx.new_page()
         errs = []
         pg.on("pageerror", lambda e: errs.append(str(e)))

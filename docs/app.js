@@ -21,7 +21,10 @@ let tt; function toast(m) { document.querySelectorAll(".toast").forEach(t => t.r
 function sheet(html, onMount) {
   const s = document.createElement("div"); s.className = "scrim";
   s.innerHTML = `<div class="sheet" role="dialog" aria-modal="true">${html}</div>`;
-  s.addEventListener("click", e => { if (e.target === s || e.target.closest("[data-close]")) s.remove(); });
+  s.addEventListener("click", e => {
+    if (e.target.closest("[data-replay]")) { s.remove(); startTutorial(true); return; }
+    if (e.target === s || e.target.closest("[data-close]")) s.remove();
+  });
   document.body.appendChild(s); onMount && onMount(s);
 }
 
@@ -272,7 +275,7 @@ function updateActions() {
   $("#yesBtn").disabled = (c.type === "qa" && c.answer === null) || (c.type === "sev" && c.raw === null);
   $("#noBtn").disabled = false;
   $("#noBtn").hidden = c.type === "sev"; // severity is a scale, not accept/reject
-  $("#undoBtn").disabled = !st.history.length;
+  $("#undoBtn").disabled = !st.history.length || !!c.practice;
 }
 const tooFast = () => performance.now() - enteredAt < DWELL();
 
@@ -414,7 +417,7 @@ function act(dir) {
   if (card.classList.contains("break")) return;
   const c = st.cur, snap = () => card._snap && card._snap();
   if (dir === "yes" && $("#yesBtn").disabled) { snap(); toast(c.type === "qa" ? "Спершу оберіть A, B чи C" : "Спершу поставте позначку на шкалі"); return; }
-  if (tooFast()) { snap(); card.classList.remove("shake"); void card.offsetWidth; card.classList.add("shake"); toast("Зарано: картка ще не дочитана"); return; }
+  if (!c.practice && tooFast()) { snap(); card.classList.remove("shake"); void card.offsetWidth; card.classList.add("shake"); toast("Зарано: картка ще не дочитана"); return; }
   if (c.s) {
     const missing = Object.keys(c.s).find(k => c.s[k] === "redo" && !(c.why[k] || []).length);
     if (missing) { snap(); toast("Вкажіть, що не так: торкніться слів або оберіть причину"); const w = card.querySelector(`[data-k="${missing}"] .reason`); w && w.focus(); return; }
@@ -445,7 +448,9 @@ function reviewOf(c) {
 function commit(dir) {
   const out = dir === "yes" ? 1 : -1;
   card.classList.add("anim"); card.style.transform = `translateX(${out * 520}px) rotate(${out * 22}deg)`; card.style.opacity = 0;
-  const c = st.cur, rv = reviewOf(c);
+  const c = st.cur;
+  if (c.practice) { rotEvent(outcome(c)); st.cur = null; setTimeout(() => practiceCommitted(c), 240); return; }
+  const rv = reviewOf(c);
   pending.push(rv); savePending(); flush();
   st.history.push({ cur: c, review_id: rv.review_id });
   if (st.history.length > 20) st.history.shift();
@@ -489,7 +494,7 @@ function wireSlider() {
   const sl = $("#slider"), knob = $("#knob"), empty = $("#sevEmpty");
   let drag = false;
   function set(raw, live) {
-    raw = Math.max(0, Math.min(1, raw)); st.cur.raw = raw;
+    raw = Math.max(0, Math.min(1, raw)); st.cur.raw = raw; st.cur.sliding = !!live;
     const v = LEVELS[Math.min(3, Math.floor(raw * 4))];
     knob.classList.remove("idle"); empty.style.visibility = "hidden";
     knob.style.left = raw * 100 + "%"; knob.textContent = v.e;
@@ -515,7 +520,7 @@ function openQaHelp() {
       <div class="li"><span class="e">✕</span><b>✕ на тексті опису</b><span>Окремі слова звучать неприродно чи з помилкою, а саме питання нормальне.</span></div>
       <div class="li"><span class="e">👈</span><b>Свайп ліворуч</b><span>Лише якщо питання зламане: підходить кілька відповідей, жодна, або опис суперечить сам собі. Відповідати тоді не обов'язково.</span></div>
     </div>
-    <button class="btn" data-close>Зрозуміло</button>`);
+    <div class="row"><button class="btn ghost" data-replay>Знайомство ще раз</button><button class="btn" data-close>Зрозуміло</button></div>`);
 }
 function openRubric() {
   sheet(`<h3>Небезпечність стереотипу</h3><p>Оцінюйте сам стереотип, а не формулювання. Запитайте себе: що станеться з людиною, якщо в це повірять? Тягніть смайлик так далеко, як вважаєте за потрібне.</p>
@@ -536,7 +541,7 @@ $("#helpBtn").onclick = () => {
     <div class="li"><span class="e">👈</span><b>Свайп ліворуч</b><span>Є проблема. Якщо нічого не позначено, попросимо пояснити, що зламано в усьому прикладі.</span></div></div>
     <p><b>S</b> має звучати як поширене упередження. <b>C</b> має заперечувати саме цей стереотип, а не бути нейтральним. <b>U</b> згадує ту саму групу, але ні на що не натякає. Стилістичні вподобання — не дефект.</p>
     <p>На ноутбуці: перетягніть картку мишею, свайпніть двома пальцями по тачпаду або натисніть ← →.</p>
-    <button class="btn" data-close>Зрозуміло</button>`);
+    <div class="row"><button class="btn ghost" data-replay>Знайомство ще раз</button><button class="btn" data-close>Зрозуміло</button></div>`);
 };
 $("#trophyBtn").onclick = async () => {
   sheet(`<h3>Досягнення</h3><div id="boardBox"><div class="spin" style="margin:24px auto"></div></div><button class="btn" data-close>Закрити</button>`);
@@ -589,6 +594,6 @@ async function boot() {
   applyStats(r.stats);
   startRot(st.done);
   flush();
-  advance();
+  if (!r.me.onboarded && !ls("wb-onboarded-" + r.me.id)) startTutorial(false); else advance();
 }
 addEventListener("DOMContentLoaded", boot);

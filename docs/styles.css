@@ -200,3 +200,21 @@ body{margin:0}
 .demo{font-size:11px;font-weight:600;color:var(--accent-ink,#3a2c00);background:var(--accent);border-radius:999px;padding:2px 8px}
 .def-en{font-size:12px;color:var(--muted);font-style:italic}
 .q-en{font-size:13px;color:var(--muted)}
+
+/* onboarding: coach marks */
+.coach-ring{position:fixed;z-index:30;border-radius:18px;pointer-events:none;box-shadow:0 0 0 3px var(--accent),0 0 0 9999px rgba(10,12,20,.5);transition:left .25s,top .25s,width .25s,height .25s}
+.coach{position:fixed;z-index:31;background:var(--ink);color:var(--bg);border-radius:14px;padding:12px 14px;font-size:14px;line-height:1.45;box-shadow:var(--shadow);animation:up .2s ease-out}
+.coach b{color:var(--accent)}
+.coach-foot{display:flex;align-items:center;gap:8px;margin-top:10px}
+.coach-step{flex:1;font-size:12px;opacity:.6;font-variant-numeric:tabular-nums}
+.coach-skip{border:0;background:transparent;color:inherit;opacity:.7;font-size:13px;padding:6px 4px}
+.coach-next{border:0;background:var(--accent);color:#2b2000;font-weight:600;font-size:13px;border-radius:10px;padding:7px 14px}
+.onb-hero{font-size:44px;text-align:center}
+.onb-modal .sheet h3{text-align:center;font-size:19px}
+.onb-meta{text-align:center;font-size:12px!important}
+.anchor{position:absolute;top:8px;width:3px;height:28px;margin-left:-1.5px;border-radius:2px;background:var(--ink);pointer-events:none}
+.anchor span{position:absolute;bottom:32px;left:50%;transform:translateX(-50%);font-size:11px;font-weight:600;white-space:nowrap;color:var(--ink)}
+.toast{z-index:40}
+.onb-modal{align-items:center;padding:16px}
+.onb-modal .sheet{border-radius:22px;max-width:420px;padding:22px 18px 18px;animation:pop .25s ease-out}
+@keyframes pop{from{transform:scale(.96);opacity:.6}}
