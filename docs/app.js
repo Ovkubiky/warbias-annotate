@@ -416,6 +416,7 @@ function act(dir) {
   if (dir === "no" && st.cur.type === "sev") { card._snap && card._snap(); return; }
   if (card.classList.contains("break")) return;
   const c = st.cur, snap = () => card._snap && card._snap();
+  if (c.practice && !tutAllowsCommit()) { snap(); toast("Спершу зробіть те, що в підказці"); return; }
   if (dir === "yes" && $("#yesBtn").disabled) { snap(); toast(c.type === "qa" ? "Спершу оберіть A, B чи C" : "Спершу поставте позначку на шкалі"); return; }
   if (!c.practice && tooFast()) { snap(); card.classList.remove("shake"); void card.offsetWidth; card.classList.add("shake"); toast("Зарано: картка ще не дочитана"); return; }
   if (c.s) {
@@ -446,6 +447,7 @@ function reviewOf(c) {
   };
 }
 function commit(dir) {
+  if (!st.cur || !card) return;           // already sent (double tap / double skip)
   const out = dir === "yes" ? 1 : -1;
   card.classList.add("anim"); card.style.transform = `translateX(${out * 520}px) rotate(${out * 22}deg)`; card.style.opacity = 0;
   const c = st.cur;
@@ -543,22 +545,37 @@ $("#helpBtn").onclick = () => {
     <p>На ноутбуці: перетягніть картку мишею, свайпніть двома пальцями по тачпаду або натисніть ← →.</p>
     <div class="row"><button class="btn ghost" data-replay>Знайомство ще раз</button><button class="btn" data-close>Зрозуміло</button></div>`);
 };
-$("#trophyBtn").onclick = async () => {
-  sheet(`<h3>Досягнення</h3><div id="boardBox"><div class="spin" style="margin:24px auto"></div></div><button class="btn" data-close>Закрити</button>`);
-  let r;
-  try { r = await st.api.board(); } catch (_) { r = null; }
-  const box = $("#boardBox"); if (!box) return;
-  if (!r || !r.ok) { box.innerHTML = `<p>Не вдалося завантажити рейтинг. Спробуйте пізніше.</p>`; return; }
+// leaderboard: show the last known one instantly, refresh in the background
+function boardHTML(r, stale) {
   const me = r.board.find(p => p.id === r.me) || { accuracy: null, tickets: 0, streak: 0 };
   const rank = r.board.findIndex(p => p.id === r.me);
   const top = r.board.slice(0, 5);
   if (rank >= 5) top.push(r.board[rank]);
   const pctAcc = me.accuracy === null ? "—" : Math.round(me.accuracy * 100) + "%";
-  box.innerHTML = `
+  return `
     <div class="stats"><div class="stat"><b>${pctAcc}</b><span>точність</span></div><div class="stat"><b>${me.tickets}</b><span>квитки</span></div><div class="stat"><b>🔥 ${me.streak}</b><span>дні поспіль</span></div></div>
     <div class="lb">${top.map(p => `<div class="${p.id === r.me ? "me" : ""}"><span>${r.board.indexOf(p) + 1}</span><span>${p.id === r.me ? "Ви" : esc(p.name)}</span><em>${p.accuracy === null ? "" : Math.round(p.accuracy * 100) + "%"}</em><b>${p.score}</b></div>`).join("")}</div>
     <p>Бали = картки × точність на прихованих контрольних прикладах${me.accuracy === null ? " (поки контрольних не було, рахуємо просто картки)" : ""}. Прийняти чи позначити — однаково. Квиток у розіграш — за кожні 50 карток при точності від 80%.</p>
-    <p>Команда: ${r.team.done} з ${r.team.total} карток мають усі потрібні оцінки.</p>`;
+    <p>Команда: ${r.team.done} з ${r.team.total} карток мають усі потрібні оцінки.${stale ? ` <span class="sync">оновлюю…</span>` : ""}</p>`;
+}
+let boardReq = null;
+function loadBoard() {
+  if (!st.api) return Promise.resolve(null);
+  boardReq = boardReq || st.api.board().then(r => {
+    if (r && r.ok) ls("wb-board", JSON.stringify(r));
+    return r;
+  }).catch(() => null).finally(() => setTimeout(() => boardReq = null, 0));
+  return boardReq;
+}
+$("#trophyBtn").onclick = async () => {
+  let cached = null;
+  try { cached = JSON.parse(ls("wb-board") || "null"); } catch (_) {}
+  sheet(`<h3>Досягнення</h3><div id="boardBox">${cached && cached.ok ? boardHTML(cached, true) : `<div class="spin" style="margin:24px auto"></div>`}</div><button class="btn" data-close>Закрити</button>`);
+  const r = await loadBoard();
+  const box = $("#boardBox"); if (!box) return;
+  if (r && r.ok) box.innerHTML = boardHTML(r, false);
+  else if (!cached) box.innerHTML = `<p>Не вдалося завантажити рейтинг. Спробуйте пізніше.</p>`;
+  else { const s = box.querySelector(".sync"); if (s) s.textContent = "не вдалося оновити"; }
 };
 $("#modeBtn").onclick = () => {
   const rem = (st.stats && st.stats.remaining) || {};
@@ -595,5 +612,6 @@ async function boot() {
   startRot(st.done);
   flush();
   if (!r.me.onboarded && !ls("wb-onboarded-" + r.me.id)) startTutorial(false); else advance();
+  setTimeout(loadBoard, 4000);   // warm the leaderboard so 🏆 opens instantly
 }
 addEventListener("DOMContentLoaded", boot);

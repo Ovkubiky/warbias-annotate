@@ -48,7 +48,9 @@ so position and fatigue effects can be measured.
 
 ```bash
 node --test tests/logic.test.js       # assignment / scoring rules
+node --test tests/backend.test.js     # Code.js against an in-memory Google stand-in (tests/gas_shim.js)
 python3 tests/e2e_demo.py             # front end in Chromium, demo mode (needs playwright)
+python3 tests/e2e_onboarding.py       # first-run walkthrough, incl. skip-step and exit
 python3 scripts/build_sample.py       # refresh the demo cards from Hugging Face
 scripts/sync-logic.sh                 # copy apps-script/Logic.js to docs/logic.js after editing it
 ```

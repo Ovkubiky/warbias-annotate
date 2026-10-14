@@ -51,6 +51,10 @@ async def full_walk(b):
 
     # fix the typo in S right in the text
     await pg.tap('[data-k="S"] .ua'); await pg.keyboard.press("End")
+    await pg.keyboard.type("а"); await pg.wait_for_timeout(500)
+    check("appending text is not a typo fix", await step_no(pg) == 2)
+    check("hint asks for the exact word", "працівники" in await pg.inner_text(".coach"))
+    await pg.keyboard.press("Backspace")
     for _ in range(4):
         await pg.keyboard.press("Backspace")
     await pg.keyboard.type("ики.")
@@ -71,6 +75,8 @@ async def full_walk(b):
     await pg.wait_for_selector('[data-choice="2"]')
     await pg.tap('[data-choice="2"]'); await wait_step(pg, 8)
     await pg.wait_for_timeout(200)
+    await pg.tap("#yesBtn"); await pg.wait_for_timeout(500)
+    check("✓ on a wrong answer does not throw the card away", await pg.evaluate("st.cur && st.cur.practice && st.cur.type") == "qa" and await step_no(pg) == 8)
     check("wrong answer gets a hint", "Перечитайте" in await pg.inner_text(".coach"))
     check("no Next until right", await pg.locator(".coach-next").count() == 0)
     await pg.tap('[data-choice="1"]'); await pg.wait_for_timeout(200)
@@ -128,9 +134,39 @@ async def skip_walk(b):
     else:  # current card is severity: its help is the rubric; use the triplet help via a fresh replay call
         await pg.evaluate("document.querySelector('.scrim').remove(); startTutorial(true)")
     await pg.click(".onb-modal [data-pri]"); await wait_step(pg, 1)
-    await pg.click(".coach-skip")
+    await pg.click(".coach-x")
+    await pg.click(".onb-confirm [data-stay]")
+    check("exit can be cancelled", await pg.is_visible(".coach"))
+    await pg.click(".coach-x"); await pg.click(".onb-confirm [data-exit]")
     await pg.wait_for_function("st.cur && !st.cur.practice", timeout=5000)
-    check("skip mid-way returns to real cards", await pg.locator(".coach").count() == 0)
+    check("exit mid-way returns to real cards", await pg.locator(".coach").count() == 0)
+    await ctx.close()
+    return errs
+
+
+async def skip_every_step(b):
+    """Only press 'Skip step' / 'Next' / 'Start' — must reach the real cards with a consistent state."""
+    ctx = await b.new_context(viewport={"width": 1280, "height": 800})   # desktop, like the bug report
+    pg = await ctx.new_page()
+    errs = []
+    pg.on("pageerror", lambda e: errs.append(str(e)))
+    await pg.goto(PAGE)
+    await pg.click(".onb-modal [data-pri]")
+    for _ in range(40):
+        if await pg.evaluate("!tut.on"):
+            break
+        if await pg.locator(".onb-modal [data-pri]").count():
+            await pg.click(".onb-modal [data-pri]")
+        elif await pg.locator(".coach-next").count():
+            await pg.click(".coach-next")
+        else:
+            await pg.click(".coach-skip")
+        await pg.wait_for_timeout(450)
+    await pg.wait_for_function("st.cur && !st.cur.practice", timeout=5000)
+    res = json.loads(await pg.evaluate("localStorage.getItem('wb-demo-onboarded')"))
+    check("skip-all: finished, not exited", res["skipped"] is False)
+    check("skip-all: steps recorded as skipped", len(res.get("skippedSteps", [])) >= 8)
+    check("skip-all: auto actions left consistent results", res["tri"]["status"]["C"] == "redo" and res["qa"]["correct"] is True)
     await ctx.close()
     return errs
 
@@ -138,7 +174,7 @@ async def skip_walk(b):
 async def main():
     async with async_playwright() as p:
         b = await p.chromium.launch()
-        errs = await full_walk(b) + await skip_walk(b)
+        errs = await full_walk(b) + await skip_walk(b) + await skip_every_step(b)
         print(f"passed {ok}, failed {len(bad)}: {bad}\nerrors: {errs}")
         await b.close()
 

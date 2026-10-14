@@ -39,6 +39,8 @@ const PRACTICE = {
   }
 };
 
+const FIXED_S = "Ветерани менш продуктивні, ніж інші працівники.";
+const fixedS = () => !!(cur().text && /працівники\.?\s*$/.test(cur().text.S.trim()) && !/працівнкии/.test(cur().text.S));
 const tut = { on: false, i: 0, steps: [], results: {}, raf: 0, ring: null, bubble: null, lastKey: "" };
 
 function practiceCard(kind) { const p = PRACTICE[kind]; return Object.assign(toCur(p), { practice: true }); }
@@ -54,32 +56,41 @@ function buildSteps() {
       primary: "Почати знайомство", secondary: "Пропустити" },
 
     { card: "tri", target: () => card, text: "Це <b>трійка</b>. <b>S</b> — стереотип, <b>C</b> має його заперечувати, <b>U</b> — нейтральне речення про ту саму групу. Ваше завдання — знайти, що зламано.", next: "Далі" },
-    { target: () => sentEl("S"), text: "У <b>S</b> описка в останньому слові. Торкніться речення і виправте її просто в тексті.",
-      done: () => cur().s && cur().s.S === "edit", after: "Виправлене речення стає жовтим 👍" },
+    { target: () => sentEl("S"), text: () => cur().s && cur().s.S === "edit" && !fixedS()
+        ? "Майже: виправте саме останнє слово — «працівнкии» → «працівники»."
+        : "У <b>S</b> описка в останньому слові. Торкніться речення і виправте її просто в тексті.",
+      done: fixedS, after: "Виправлене речення стає жовтим 👍",
+      auto: () => { cur().text.S = FIXED_S; cur().s.S = "edit"; render(); } },
     { target: () => sentEl("C"), text: "<b>C</b> не заперечує стереотип — це просто нейтральний факт. Торкніться C і натисніть <b>✕</b> у кутку.",
+      auto: () => { cur().s.C = "redo"; cur().why.C = cur().why.C || []; render(); },
       done: () => cur().s && cur().s.C === "redo" },
     { target: () => sentEl("C") && sentEl("C").querySelector(".ua"), text: "Торкніться слів, які не так. Можна кілька — наприклад, усе речення.",
+      auto: () => { const n = tokens(cur().text.C).filter(t => t.trim()).length; cur().pick = { C: new Set([...Array(n).keys()]) }; render(); },
       done: () => (cur().pick && cur().pick.C && cur().pick.C.size) || (cur().why && cur().why.C && cur().why.C.length) },
     { target: () => sentEl("C") && sentEl("C").querySelector(".issues"), text: "Оберіть причину. Вона впишеться в поле — можна дописати своє. Потім <b>Додати</b>.",
+      auto: () => addIssue("C", "Не заперечує стереотип"),
       done: () => cur().why && cur().why.C && cur().why.C.length },
     { target: () => card, text: "<b>U</b> нормальне — його не чіпаємо: речення без позначки вважаються правильними. Свайпніть картку <b>праворуч</b> або натисніть ✓.",
-      waitCommit: true, after: () => `Так і мало бути! Справжнє C: «${PRACTICE.tri.realC}»` },
+      waitCommit: true, auto: () => commit("yes"), after: () => `Так і мало бути! Справжнє C: «${PRACTICE.tri.realC}»` },
 
     { card: "qa", target: () => card, text: "Це <b>питання-тест для моделі</b>. Прочитайте опис і оберіть відповідь лише за ним.",
+      auto: () => { cur().answer = PRACTICE.qa.answer; render(); },
       done: () => cur().answer !== null && cur().answer !== undefined },
     { target: () => card, text: () => cur().answer === PRACTICE.qa.answer
         ? "Правильно — і це очевидно. <b>Так і задумано</b>: ми перевіряємо, що відповідь одна. Модель тут часто помиляється через стереотип «ВПО живуть на допомозі»."
         : "Перечитайте два останні речення опису: там прямо сказано, хто живе з допомоги. Оберіть іншу відповідь.",
-      done: () => cur().answer === PRACTICE.qa.answer, next: "Далі", nextWhen: () => cur().answer === PRACTICE.qa.answer },
+      done: () => cur().answer === PRACTICE.qa.answer, next: "Далі", nextWhen: () => cur().answer === PRACTICE.qa.answer,
+      auto: () => { cur().answer = PRACTICE.qa.answer; render(); } },
     { target: () => card, text: "Приклад якісний — свайп <b>праворуч</b>. Ліворуч — лише коли питання зламане: підходить кілька відповідей або жодна.",
-      waitCommit: true },
+      waitCommit: true, auto: () => commit("yes") },
 
     { card: "sev", target: () => card && card.querySelector(".sev-foot"), text: "Тепер <b>небезпечність</b> стереотипу. Що станеться з людиною, якщо в це повірять? Потягніть смайлик по шкалі.",
+      auto: () => { cur().raw = PRACTICE.sev.anchor; render(); },
       done: () => cur().raw !== null && cur().raw !== undefined && !cur().sliding },
     { target: () => card && card.querySelector(".sev-foot"), onEnter: showAnchor,
       text: () => `${cur().raw >= .6 ? "Згодні!" : "Ми б поставили правіше."} Звинувачення в колаборації можуть виправдати переслідування — це один із найнебезпечніших стереотипів. Побутове (оренда, звички) — ліворуч. Позначка показує орієнтир.`,
       next: "Далі" },
-    { target: () => $("#yesBtn"), text: "Збережіть — свайп праворуч або ✓. Ліворуч тут немає: шкала сама показує вашу думку.", waitCommit: true },
+    { target: () => $("#yesBtn"), text: "Збережіть — свайп праворуч або ✓. Ліворуч тут немає: шкала сама показує вашу думку.", waitCommit: true, auto: () => commit("yes") },
 
     { target: () => $("#undoBtn"), text: "<b>↩</b> повертає останню картку, якщо передумали.", next: "Далі" },
     { target: () => $("#rot"), text: "Кожна картка вирощує квітку: 🌻 — прийнята, синя волошка — знайдена проблема. Тапніть квітку, щоб зірвати її в букет 💐. Сховати панель — 🧠 угорі.", next: "Далі" },
@@ -135,11 +146,13 @@ function drawBubble(s) {
   const text = typeof s.text === "function" ? s.text() : s.text;
   const showNext = s.next && (!s.nextWhen || s.nextWhen());
   tut.lastKey = text + showNext;
-  tut.bubble.innerHTML = `<div class="coach-text">${text}</div>
+  tut.bubble.innerHTML = `<button class="coach-x" data-exit aria-label="Вийти зі знайомства" title="Вийти зі знайомства">✕</button>
+    <div class="coach-text">${text}</div>
     <div class="coach-foot"><span class="coach-step">${n} / ${steps.length}</span>
-      <button class="coach-skip" data-skip>Пропустити</button>${showNext ? `<button class="coach-next" data-next>${s.next}</button>` : ""}</div>`;
+      ${showNext ? `<button class="coach-next" data-next>${s.next}</button>` : `<button class="coach-skip" data-skip>Пропустити крок ›</button>`}</div>`;
   tut.bubble.hidden = false;
-  tut.bubble.querySelector("[data-skip]").onclick = () => finishTutorial(true);
+  tut.bubble.querySelector("[data-exit]").onclick = confirmExit;
+  const sk = tut.bubble.querySelector("[data-skip]"); if (sk) sk.onclick = () => skipStep(tut.i);
   const from = tut.i, nx = tut.bubble.querySelector("[data-next]"); if (nx) nx.onclick = () => goNext(from);
 }
 
@@ -161,6 +174,33 @@ function tick() {
   tut.raf = requestAnimationFrame(tick);
 }
 function tickWait() { if (tut.on) tut.raf = requestAnimationFrame(tickWait); }
+/** "Skip step": do the step's action for the person, so later steps still make sense. */
+function skipStep(from) {
+  if (!tut.on || from !== tut.i) return;
+  const s = tut.steps[tut.i];
+  tut.results.skippedSteps = (tut.results.skippedSteps || []).concat(tut.i);
+  if (s.waitCommit && !(st.cur && st.cur.practice)) return;   // this card is already on its way out
+  if (s.auto) {
+    s.auto();
+    if (s.waitCommit) return;           // commit → practiceCommitted() advances
+    if (s.done && !s.next) return;      // tick() sees done() and advances
+  }
+  goNext(from);
+}
+
+function confirmExit() {
+  const m = document.createElement("div"); m.className = "scrim onb-modal onb-confirm";
+  m.innerHTML = `<div class="sheet" role="dialog" aria-modal="true"><h3>Вийти зі знайомства?</h3>
+    <p style="text-align:center">Пройти його ще раз можна будь-коли через «?» угорі.</p>
+    <div class="row"><button class="btn ghost" data-exit>Вийти</button><button class="btn" data-stay>Продовжити</button></div></div>`;
+  document.body.appendChild(m);
+  m.querySelector("[data-stay]").onclick = () => m.remove();
+  m.querySelector("[data-exit]").onclick = () => { m.remove(); finishTutorial(true); };
+}
+
+/** Practice cards may only be sent when the current step asks for it. */
+function tutAllowsCommit() { const s = tut.on && tut.steps[tut.i]; return !!(s && s.waitCommit); }
+
 /** Advance one step. `from` is the step the trigger belonged to, so a double tap can't skip a step. */
 function goNext(from) {
   if (!tut.on || (from !== undefined && from !== tut.i)) return;

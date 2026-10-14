@@ -94,6 +94,8 @@ function importWarBias() {
   rows.forEach(function (r) { if (keep[r[0]]) r[2] = keep[r[0]]; });
   if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, TABS.items.length).clearContent();
   sh.getRange(2, 1, rows.length, TABS.items.length).setValues(rows);
+  // new item version: cached index and payloads from the old import are ignored from now on
+  PropertiesService.getScriptProperties().setProperty('ITEMS_VER', String(Date.now()));
   Logger.log('Імпортовано: ' + rows.length + ' карток');
   return rows.length;
 }
@@ -108,6 +110,7 @@ function makeLinks() {
     var id = 'a' + ('0' + i).slice(-2);
     sh.getRange(i + 1, 1, 1, 6).setValues([[id, v[i][1], token, c.pages_url + '?t=' + token, true, new Date()]]);
   }
+  cDel_('ann');
 }
 
 /* ---------- web app ---------- */
@@ -170,10 +173,7 @@ function next_(me, req) {
         .push({ a: me.id, exp: now + opts.leaseMinutes * 60000 });
     });
     cache.put('leases', JSON.stringify(leases), 21600);
-    var sh = ss_().getSheetByName('items');
-    var cards = picked.map(function (it) {
-      return { item_id: it.item_id, type: it.type, payload: JSON.parse(sh.getRange(it.row, 5).getValue()) };
-    });
+    var cards = payloads_(picked).map(function (x) { return { item_id: x.it.item_id, type: x.it.type, payload: x.payload }; });
     return { ok: true, cards: cards, remaining: remainingFor(items.list, reviews, me.id, opts) };
   } finally { lock.releaseLock(); }
 }
@@ -185,14 +185,18 @@ function submit_(me, req) {
   try {
     var sh = ss_().getSheetByName('reviews');
     var existing = {};
-    if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues().forEach(function (r) { existing[r[0]] = true; });
+    reviewIndex_().forEach(function (r) { existing[r.review_id] = true; });
     var now = new Date(), day = Utilities.formatDate(now, TZ, 'yyyy-MM-dd');
     var rows = list.filter(function (r) { return r && r.review_id && !existing[r.review_id]; }).map(function (r) {
       return [r.review_id, now, day, me.id, r.item_id, r.type, r.outcome, r.answer === null || r.answer === undefined ? '' : r.answer,
         r.raw === null || r.raw === undefined ? '' : r.raw, r.position || '', r.session || '', r.dwell_ms || '',
         JSON.stringify(r.result || {}), false];
     });
-    if (rows.length) sh.getRange(sh.getLastRow() + 1, 1, rows.length, TABS.reviews.length).setValues(rows);
+    if (rows.length) {
+      sh.getRange(sh.getLastRow() + 1, 1, rows.length, TABS.reviews.length).setValues(rows);
+      updateReviewCache_(function (rv) { rows.forEach(function (r) { rv.push(compactReview_(r)); }); });
+      cDel_('board');
+    }
     var cache = CacheService.getScriptCache(), leases = JSON.parse(cache.get('leases') || '{}');
     list.forEach(function (r) {
       if (leases[r.item_id]) leases[r.item_id] = leases[r.item_id].filter(function (l) { return l.a !== me.id; });
@@ -203,13 +207,18 @@ function submit_(me, req) {
 }
 
 function undo_(me, req) {
-  var sh = ss_().getSheetByName('reviews');
-  var hit = sh.getRange('A:A').createTextFinder(String(req.review_id)).matchEntireCell(true).findNext();
-  if (!hit) return { ok: true, found: false };
-  var row = hit.getRow();
-  if (sh.getRange(row, 4).getValue() !== me.id) return { ok: false, error: 'not_yours' };
-  sh.getRange(row, TABS.reviews.indexOf('undone') + 1).setValue(true);
-  return { ok: true, found: true, stats: stats_(me.id) };
+  var lock = LockService.getScriptLock(); lock.waitLock(15000);
+  try {
+    var sh = ss_().getSheetByName('reviews');
+    var hit = sh.getRange('A:A').createTextFinder(String(req.review_id)).matchEntireCell(true).findNext();
+    if (!hit) return { ok: true, found: false };
+    var row = hit.getRow();
+    if (sh.getRange(row, 4).getValue() !== me.id) return { ok: false, error: 'not_yours' };
+    sh.getRange(row, TABS.reviews.indexOf('undone') + 1).setValue(true);
+    updateReviewCache_(function (rv) { rv.forEach(function (r) { if (r[0] === String(req.review_id)) r[6] = 1; }); });
+    cDel_('board');
+    return { ok: true, found: true, stats: stats_(me.id) };
+  } finally { lock.releaseLock(); }
 }
 
 /** Remember that this person finished (or skipped) the walkthrough, with their practice answers. */
@@ -221,6 +230,7 @@ function onboarded_(me, req) {
   if (i < 0) return { ok: false, error: 'not_found' };
   sh.getRange(i + 2, head.indexOf('onboarded') + 1).setValue(new Date());
   sh.getRange(i + 2, head.indexOf('practice') + 1).setValue(JSON.stringify(req.results || {}));
+  cDel_('ann');
   return { ok: true };
 }
 
@@ -234,10 +244,14 @@ function ensureCols_(sh, cols) {
 }
 
 function board_(me) {
-  var items = itemIndex_(), reviews = reviewIndex_();
-  var people = rows_('annotators').filter(function (a) { return a.id; }).map(function (a) { return { id: a.id, name: a.name }; });
-  var lb = leaderboard(items.list, reviews, people);
-  return { ok: true, me: me.id, board: lb, team: teamProgress(items.list, reviews, opts_(config_())) };
+  var b = cGet_('board');
+  if (!b) {
+    var items = itemIndex_(), reviews = reviewIndex_();
+    var people = people_().filter(function (a) { return a.id; }).map(function (a) { return { id: a.id, name: a.name }; });
+    b = { board: leaderboard(items.list, reviews, people), team: teamProgress(items.list, reviews, opts_(config_())) };
+    cPut_('board', b, 60);
+  }
+  return { ok: true, me: me.id, board: b.board, team: b.team };
 }
 
 function stats_(id) {
@@ -267,9 +281,20 @@ function rows_(name) {
 }
 
 function config_() {
-  var c = {};
+  var c = cGet_('cfg');
+  if (c) return c;
+  c = {};
   rows_('config').forEach(function (r) { c[r.key] = r.value; });
+  cPut_('cfg', c, 300);                        // edits in the config tab apply within 5 minutes
   return c;
+}
+
+function people_() {
+  var p = cGet_('ann');
+  if (p) return p;
+  p = rows_('annotators');
+  cPut_('ann', p, 300);
+  return p;
 }
 
 function opts_(c) {
@@ -282,32 +307,90 @@ function opts_(c) {
 
 function annotator_(token) {
   if (!token) return null;
-  var hit = rows_('annotators').filter(function (a) { return a.token === token && a.active !== false && a.active !== 'FALSE'; })[0];
+  var hit = people_().filter(function (a) { return a.token === token && a.active !== false && a.active !== 'FALSE'; })[0];
   return hit || null;
 }
 
-/** Items without payloads (payload is fetched per picked row). */
+function itemsVer_() { return PropertiesService.getScriptProperties().getProperty('ITEMS_VER') || '0'; }
+
+/** Items without payloads. Cached 5 minutes, so gold marks edited in the sheet apply within that time. */
 function itemIndex_() {
+  var key = 'items' + itemsVer_(), c = cGet_(key);
+  if (c) return { list: c.map(function (r) { return { item_id: r[0], type: r[1], gold: r[2], row: r[3] }; }) };
   var sh = ss_().getSheetByName('items'), n = sh.getLastRow() - 1;
   if (n < 1) return { list: [] };
   var v = sh.getRange(2, 1, n, 3).getValues(), list = [];
   v.forEach(function (r, i) { if (r[0] !== '') list.push({ item_id: String(r[0]), type: r[1], gold: r[2], row: i + 2 }); });
+  cPut_(key, list.map(function (it) { return [it.item_id, it.type, it.gold, it.row]; }), 300);
   return { list: list };
 }
 
-function reviewIndex_() {
+/** Card texts, from cache when possible (6 h), otherwise one sheet read per missing card. */
+function payloads_(picked) {
+  if (!picked.length) return [];
+  var ver = itemsVer_(), keys = picked.map(function (it) { return 'p' + ver + ':' + it.item_id; });
+  var got = cache_().getAll(keys), sh = null, put = {};
+  var out = picked.map(function (it, i) {
+    var s = got[keys[i]];
+    if (!s) { sh = sh || ss_().getSheetByName('items'); s = String(sh.getRange(it.row, 5).getValue()); put[keys[i]] = s; }
+    return { it: it, payload: JSON.parse(s) };
+  });
+  if (Object.keys(put).length) cache_().putAll(put, TTL_LONG);
+  return out;
+}
+
+/* Reviews index: a compact copy of the reviews tab kept in cache and updated on every submit / undo,
+ * so reads don't touch the sheet. The sheet stays the source of truth: on a cache miss it is rebuilt. */
+function compactReview_(r) {
+  var h = TABS.reviews, ix = function (k) { return h.indexOf(k); }, day = r[ix('day')];
+  return [String(r[ix('review_id')]), String(r[ix('item_id')]), String(r[ix('annotator')]), String(r[ix('outcome')]),
+    r[ix('answer')] === '' || r[ix('answer')] === null ? '' : r[ix('answer')],
+    day instanceof Date ? Utilities.formatDate(day, TZ, 'yyyy-MM-dd') : String(day),
+    (r[ix('undone')] === true || r[ix('undone')] === 'TRUE') ? 1 : 0];
+}
+function reviewRows_() {
+  var c = cGet_('rv');
+  if (c) return c;
   var sh = ss_().getSheetByName('reviews'), n = sh.getLastRow() - 1;
-  if (n < 1) return [];
-  var h = TABS.reviews, v = sh.getRange(2, 1, n, h.length).getValues();
-  var ix = function (k) { return h.indexOf(k); };
-  return v.map(function (r) {
-    return {
-      item_id: String(r[ix('item_id')]), annotator: r[ix('annotator')], outcome: r[ix('outcome')],
-      answer: r[ix('answer')], day: r[ix('day')] instanceof Date ? Utilities.formatDate(r[ix('day')], TZ, 'yyyy-MM-dd') : String(r[ix('day')]),
-      undone: r[ix('undone')] === true || r[ix('undone')] === 'TRUE'
-    };
+  c = n < 1 ? [] : sh.getRange(2, 1, n, TABS.reviews.length).getValues().filter(function (r) { return r[0] !== ''; }).map(compactReview_);
+  cPut_('rv', c, TTL_LONG);
+  return c;
+}
+function updateReviewCache_(fn) {          // callers hold the script lock
+  var c = cGet_('rv');
+  if (!c) return;                          // nothing cached: next read rebuilds from the sheet
+  fn(c);
+  cPut_('rv', c, TTL_LONG);
+}
+function reviewIndex_() {
+  return reviewRows_().map(function (r) {
+    return { review_id: r[0], item_id: r[1], annotator: r[2], outcome: r[3], answer: r[4], day: r[5], undone: r[6] === 1 };
   });
 }
+
+/* ---------- cache helpers: JSON values, split into chunks under the 100 KB limit ---------- */
+var TTL_LONG = 21600, CHUNK = 30000;       // Cyrillic is up to 3 bytes per character
+function cache_() { return CacheService.getScriptCache(); }
+function cGet_(key) {
+  var c = cache_(), head = c.get(key);
+  if (!head) return null;
+  var h = JSON.parse(head);
+  if (!h.n) return h.v;
+  var keys = [];
+  for (var i = 0; i < h.n; i++) keys.push(key + ':' + i);
+  var parts = c.getAll(keys), s = '';
+  for (var j = 0; j < h.n; j++) { if (parts[keys[j]] == null) return null; s += parts[keys[j]]; }
+  return JSON.parse(s);
+}
+function cPut_(key, obj, ttl) {
+  var s = JSON.stringify(obj), c = cache_();
+  if (s.length < CHUNK) { c.put(key, JSON.stringify({ v: obj }), ttl); return; }
+  var m = {}, n = Math.ceil(s.length / CHUNK);
+  for (var i = 0; i < n; i++) m[key + ':' + i] = s.slice(i * CHUNK, (i + 1) * CHUNK);
+  c.putAll(m, ttl);
+  c.put(key, JSON.stringify({ n: n }), ttl);
+}
+function cDel_(key) { cache_().remove(key); }
 
 function byId_(list, key) { var m = {}; list.forEach(function (x) { m[x[key]] = x; }); return m; }
 function uniq_(a) { var s = {}; return a.filter(function (x) { return s[x] ? false : (s[x] = true); }); }
