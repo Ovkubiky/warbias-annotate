@@ -50,12 +50,13 @@ const outcome = c => c && c.s && Object.values(c.s).some(v => v === "redo" || v 
 const stage = $("#stage");
 let card, enteredAt = 0;
 
-// one concrete thing to look at on each card: asking a specific question finds more problems than "anything wrong?"
+// one thing to look at closely on each triplet: pointing attention somewhere specific finds more problems than
+// "anything wrong?". A statement, not a question, so it is not mistaken for something to answer. The order matches
+// the earlier wording, so result.focus keeps its meaning. QA cards already ask a question, so they get none.
 const FOCUS = {
-  tri: ["Чи C заперечує саме цей стереотип, а не щось поруч?", "Чи U справді нейтральне — без натяку на стереотип?",
-    "Чи всі три речення звучать природно українською?", "Чи S звучить як справжнє поширене упередження?",
-    "Чи всі три речення про ту саму групу людей?", "Чи немає описок і граматичних помилок?"],
-  qa: ["Чи відповідь однозначно випливає з опису?", "Чи не підходить сюди ще якась відповідь?", "Чи природно звучить опис?"]
+  tri: [{ k: "C", t: "C заперечує саме цей стереотип, а не щось поруч" }, { k: "U", t: "U нейтральне, без натяку на стереотип" },
+    { k: null, t: "усі три речення звучать природно українською" }, { k: "S", t: "S звучить як справжнє поширене упередження" },
+    { k: null, t: "усі три речення про ту саму групу людей" }, { k: null, t: "немає описок і граматичних помилок" }]
 };
 const focusOf = c => FOCUS[c.type] ? hash32(c.id + "|" + ((st.me && st.me.id) || "")) % FOCUS[c.type].length : null;
 /** Hidden check cards carry their planted error (base64 JSON) so feedback works offline. */
@@ -249,7 +250,7 @@ function render() {
   } else if (type === "qa") {
     const en = item.en || {};
     html += `<div class="eyebrow"><span class="kind">Питання</span><span>${ACTOR[item.actor] || ""}</span>${enBtn}</div>
-    <div class="body">${focusHTML()}${sentHTML("X", "¶", item.ctx, en.ctx)}<div class="q">${esc(item.q)}${st.showEn && en.q ? `<div class="q-en">${esc(en.q)}</div>` : ""}</div>
+    <div class="body">${sentHTML("X", "¶", item.ctx, en.ctx)}<div class="q">${esc(item.q)}${st.showEn && en.q ? `<div class="q-en">${esc(en.q)}</div>` : ""}</div>
       ${item.ch.map((c, i) => `<button class="choice" data-choice="${i}" aria-pressed="${st.cur.answer === i}"><b>${"ABC"[i]}</b><span>${esc(c)}${st.showEn && en.ch && en.ch[i] ? `<br><span class="q-en">${esc(en.ch[i])}</span>` : ""}</span></button>`).join("")}</div>`;
   } else {
     html += `<div class="eyebrow"><span class="kind">Небезпечність</span><span>${ACTOR[item.actor] || ""}</span></div>
@@ -268,11 +269,17 @@ function render() {
       </div></div>`;
   }
   card.innerHTML = html; stage.appendChild(card);
+  if (type === "tri") markFocus();
   wireCard(); enteredAt = performance.now(); updateActions();
 }
 function focusHTML() {
   const i = st.cur.practice ? null : focusOf(st.cur);
-  return i === null ? "" : `<div class="focus"><span aria-hidden="true">🔎</span>${esc(FOCUS[st.cur.type][i])}</div>`;
+  return i === null ? "" : `<div class="focus"><span aria-hidden="true">🔎</span><span>На цій картці особливо: <b>${esc(FOCUS[st.cur.type][i].t)}</b></span></div>`;
+}
+/** The sentence the focus line is about gets its letter highlighted. */
+function markFocus() {
+  const i = st.cur.practice ? null : focusOf(st.cur), f = i === null ? null : FOCUS[st.cur.type][i];
+  if (f && f.k) { const el = card.querySelector(`.sent[data-k="${f.k}"]`); el && el.classList.add("focus-k"); }
 }
 function renderBreak() {
   card.classList.add("break");
@@ -570,6 +577,7 @@ $("#helpBtn").onclick = () => {
     <div class="li"><span class="e">✕</span><b>Хрестик у кутку</b><span>Переробити повністю. Торкніться слів, які не так, і оберіть причину.</span></div>
     <div class="li"><span class="e">👉</span><b>Свайп праворуч</b><span>Надіслати. Речення без позначки вважаються правильними, а ваші правки й ✕ зберігаються.</span></div>
     <div class="li"><span class="e">👈</span><b>Свайп ліворуч</b><span>Є проблема. Якщо нічого не позначено, попросимо пояснити, що зламано в усьому прикладі.</span></div></div>
+    <p>🔎 Рядок угорі картки — не окреме питання, а підказка, на що звернути особливу увагу саме тут. Решту речень теж перевіряйте як завжди.</p>
     <p><b>S</b> має звучати як поширене упередження. <b>C</b> має заперечувати саме цей стереотип, а не бути нейтральним. <b>U</b> згадує ту саму групу, але ні на що не натякає. Стилістичні вподобання — не дефект.</p>
     <p>Правте помилки, кальки й неприродні формулювання, не змінюючи будови речення. Якщо C чи U побудовані зовсім не так, як S, не переписуйте самі: поставте ✕ з причиною «Трійка непаралельна» — такі трійки перебудуємо централізовано, в обох мовах.</p>
     <p>На ноутбуці: перетягніть картку мишею, свайпніть двома пальцями по тачпаду або натисніть ← →.</p>

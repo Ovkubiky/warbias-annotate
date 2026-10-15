@@ -179,7 +179,7 @@ async def main():
                     if (c.type === 'qa') c.answer = 0; if (c.type === 'sev') c.raw = .5; render(); enteredAt = -1e9; act('yes'); })()""")
                 await pg.wait_for_timeout(400)
             return False
-        check("focus prompt shown on a card", await pg.locator(".focus").count() == 1 or await ev("st.cur.type") == "sev")
+        check("focus line only on triplets", (await pg.locator(".focus").count() == 1) == (await ev("st.cur.type") == "tri"))
         found = await to_gold()
         check("a hidden check card comes up", found)
         if found:
