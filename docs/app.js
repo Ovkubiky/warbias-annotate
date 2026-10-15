@@ -52,8 +52,8 @@ let card, enteredAt = 0;
 
 function toCur(raw) {
   const p = raw.payload, base = { id: raw.item_id, type: raw.type, item: p, shownAt: 0 };
-  if (raw.type === "tri") return { ...base, s: { S: "", C: "", U: "" }, text: { S: p.S, C: p.C, U: p.U }, why: {} };
-  if (raw.type === "qa") return { ...base, s: { X: "" }, text: { X: p.ctx }, why: {}, answer: null };
+  if (raw.type === "tri") return { ...base, s: { S: "", C: "", U: "" }, text: { S: p.S, C: p.C, U: p.U }, orig: { S: p.S, C: p.C, U: p.U }, why: {} };
+  if (raw.type === "qa") return { ...base, s: { X: "" }, text: { X: p.ctx }, orig: { X: p.ctx }, why: {}, answer: null };
   return { ...base, raw: null };
 }
 
@@ -434,7 +434,9 @@ function reviewOf(c) {
   const result = {};
   if (c.s) {
     result.status = c.s;
-    const changed = {}; Object.keys(c.text).forEach(k => { if (c.s[k] === "edit") changed[k] = c.text[k].trim(); });
+    // keep every edit, also when the sentence was later marked ✕ or the whole card was rejected
+    const orig = c.orig || {}, changed = {};
+    Object.keys(c.text).forEach(k => { const t = c.text[k].trim(); if (t !== String(orig[k] || "").trim()) changed[k] = t; });
     if (Object.keys(changed).length) result.text = changed;
     if (Object.keys(c.why).length) result.why = c.why;
   }

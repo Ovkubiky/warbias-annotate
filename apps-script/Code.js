@@ -8,7 +8,7 @@ var TABS = {
   config: ['key', 'value', 'note'],
   annotators: ['id', 'name', 'token', 'link', 'active', 'created', 'onboarded', 'practice'],
   items: ['item_id', 'type', 'gold', 'group', 'payload'],
-  reviews: ['review_id', 'ts', 'day', 'annotator', 'item_id', 'type', 'outcome', 'answer', 'raw', 'position', 'session', 'dwell_ms', 'result', 'undone']
+  reviews: ['review_id', 'ts', 'day', 'annotator', 'item_id', 'type', 'outcome', 'answer', 'raw', 'position', 'session', 'dwell_ms', 'result', 'undone', 'edits', 'flags']
 };
 
 var CONFIG_DEFAULTS = [
@@ -190,9 +190,10 @@ function submit_(me, req) {
     var rows = list.filter(function (r) { return r && r.review_id && !existing[r.review_id]; }).map(function (r) {
       return [r.review_id, now, day, me.id, r.item_id, r.type, r.outcome, r.answer === null || r.answer === undefined ? '' : r.answer,
         r.raw === null || r.raw === undefined ? '' : r.raw, r.position || '', r.session || '', r.dwell_ms || '',
-        JSON.stringify(r.result || {}), false];
+        JSON.stringify(r.result || {}), false].concat(readable_(r.result));
     });
     if (rows.length) {
+      ensureReviewCols_(sh);
       sh.getRange(sh.getLastRow() + 1, 1, rows.length, TABS.reviews.length).setValues(rows);
       updateReviewCache_(function (rv) { rows.forEach(function (r) { rv.push(compactReview_(r)); }); });
       cDel_('board');
@@ -232,6 +233,46 @@ function onboarded_(me, req) {
   sh.getRange(i + 2, head.indexOf('practice') + 1).setValue(JSON.stringify(req.results || {}));
   cDel_('ann');
   return { ok: true };
+}
+
+/** Human-readable copies of result.text and result.why for the `edits` and `flags` columns. */
+function readable_(res) {
+  res = res || {};
+  var text = res.text || {}, why = res.why || {}, st = res.status || {};
+  var edits = Object.keys(text).map(function (k) { return k + ': ' + text[k]; }).join('\n');
+  var flags = [];
+  Object.keys(why).forEach(function (k) {
+    (why[k] || []).forEach(function (it) {
+      flags.push(k + ' ✕ ' + (it.frag ? '«' + it.frag + '» — ' : '') + it.reason);
+    });
+    if (!(why[k] || []).length && st[k] === 'redo') flags.push(k + ' ✕');
+  });
+  return [edits, flags.join('\n')];
+}
+/** Sheets made before `edits`/`flags` existed get the headers once, and their old rows filled in. */
+function ensureReviewCols_(sh) {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty('RV_COLS') === String(TABS.reviews.length)) return;
+  ensureCols_(sh, TABS.reviews);
+  fillReadable_(sh);
+  props.setProperty('RV_COLS', String(TABS.reviews.length));
+}
+/** Can be run from the editor: (re)fill `edits` and `flags` from the `result` JSON of every row. */
+function fillReadable() {
+  var sh = ss_().getSheetByName('reviews');
+  ensureCols_(sh, TABS.reviews);
+  fillReadable_(sh);
+}
+function fillReadable_(sh) {
+  var n = sh.getLastRow() - 1;
+  if (n < 1) return;
+  var col = TABS.reviews.indexOf('result') + 1;
+  var vals = sh.getRange(2, col, n, 1).getValues().map(function (r) {
+    var res = {};
+    try { res = JSON.parse(r[0] || '{}'); } catch (e) {}
+    return readable_(res);
+  });
+  sh.getRange(2, TABS.reviews.indexOf('edits') + 1, n, 2).setValues(vals);
 }
 
 /** Add missing header columns to an existing sheet (older setups). Returns the header row. */

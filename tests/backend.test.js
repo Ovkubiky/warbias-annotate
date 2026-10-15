@@ -118,3 +118,32 @@ test('board and onboarding', () => {
   assert.strictEqual(call(tokens[0], 'hello').me.onboarded, true);
   assert.ok(g.rows_('annotators')[0].practice.includes('skipped'));
 });
+
+test('edits and flags are also written as readable columns; old rows can be backfilled', () => {
+  const { tokens, call, g } = boot();
+  const card = call(tokens[0], 'next', { mode: 'tri', count: 1 }).cards[0];
+  call(tokens[0], 'submit', { reviews: [review(card, 'no', { result: {
+    status: { S: 'edit', C: 'redo', U: '' },
+    text: { S: 'Нове речення.', C: 'Виправлено, а потім ✕.' },
+    why: { C: [{ frag: 'потім', range: [2, 2], reason: 'Звучить неприродно' }, { frag: null, range: null, reason: 'Не заперечує стереотип' }] }
+  } })] });
+  const row = g.rows_('reviews')[0];
+  assert.strictEqual(row.edits, 'S: Нове речення.\nC: Виправлено, а потім ✕.');
+  assert.strictEqual(row.flags, 'C ✕ «потім» — Звучить неприродно\nC ✕ Не заперечує стереотип');
+  const sh = g.ss_().getSheetByName('reviews');
+  sh.getRange(2, g.TABS.reviews.indexOf('edits') + 1, 1, 2).setValues([['', '']]);
+  g.fillReadable();
+  assert.strictEqual(g.rows_('reviews')[0].edits, row.edits);
+});
+
+test('rows saved before the readable columns existed are filled on the first new submit', () => {
+  const { tokens, call, g } = boot();
+  const sh = g.ss_().getSheetByName('reviews');
+  const old = ['old-1', new Date(), '2026-10-14', 'a01', 'WB-0354', 'tri', 'no', '', '', 10, 's', 1,
+    JSON.stringify({ status: { C: 'edit' }, text: { C: 'Стара правка.' } }), false];
+  sh.getRange(2, 1, 1, old.length).setValues([old]);
+  g.cache_().remove('rv');
+  const card = call(tokens[1], 'next', { count: 1 }).cards[0];
+  call(tokens[1], 'submit', { reviews: [review(card)] });
+  assert.strictEqual(g.rows_('reviews')[0].edits, 'C: Стара правка.');
+});

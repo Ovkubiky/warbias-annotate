@@ -58,6 +58,33 @@ async def main():
         await pg.click("#yesBtn")
         check("too fast rejected", await ev("st.done") == done0)
 
+        # an edit survives marking the same sentence ✕ afterwards
+        last = "JSON.parse(localStorage.getItem('wb-demo-reviews')).slice(-1)[0].result"
+        await pg.click('[data-k="C"] .ua')
+        await ev("""(() => { const u = document.querySelector('[data-k="C"] .ua'); u.textContent = 'ПРАВКА ' + u.textContent;
+                    u.dispatchEvent(new Event('input', {bubbles: true})); })()""")
+        await pg.click('[data-k="C"] .c-bad')
+        await pg.click('[data-k="C"] .w[data-i="0"]')
+        await pg.select_option('[data-k="C"] .reason', index=1); await pg.click('[data-k="C"] .add')
+        await ev("enteredAt=-1e9"); await pg.click("#yesBtn"); await pg.wait_for_timeout(450)
+        r = await ev(last)
+        check("edit kept after ✕ on the sentence", r["text"]["C"].startswith("ПРАВКА") and r["status"]["C"] == "redo"
+              and r["why"]["C"][0]["frag"] == "ПРАВКА")
+
+        # an edit survives rejecting the whole card ("Переробити все" turns every sentence into ✕)
+        await to_type(pg, "tri")
+        await ev("""(() => { const u = document.querySelector('[data-k="U"] .ua'); u.textContent += ' ДОПИСАНО';
+                    u.dispatchEvent(new Event('input', {bubbles: true})); })()""")
+        await ev("st.cur.s.U = ''")            # edited, then ↺-free state: the card has no flags left
+        await ev("enteredAt=-1e9"); await pg.click("#noBtn")
+        await pg.select_option(".scrim .reason", index=1); await pg.click(".scrim [data-save]")
+        await pg.wait_for_timeout(450)
+        r = await ev(last)
+        check("edit kept when the card is rejected", r["text"]["U"].endswith("ДОПИСАНО") and r["status"]["U"] == "redo")
+        await to_type(pg, "tri")
+        await ev("enteredAt=-1e9")
+        done0 = await ev("st.done")
+
         # inline edit kept by corner ✓
         await pg.click('[data-k="S"] .ua'); await pg.keyboard.press("End"); await pg.keyboard.type(" (правка)")
         await pg.click('[data-k="S"] .c-ok')
