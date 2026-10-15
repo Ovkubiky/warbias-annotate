@@ -166,3 +166,44 @@ test('dashboard: team numbers for everyone, details only for admins', () => {
   assert.strictEqual(a.admin.people.find(p => p.id === 'a01').edits, 3);
   assert.strictEqual(a.admin.recent.length, 3);
 });
+
+test('round 1 import: statuses, edits, remarks, QA letters by choice text; not counted by default', () => {
+  const { tokens, call, g } = boot(['Анна', 'Богдан']);
+  const items = g.rows_('items'), tri = items.find(r => r.type === 'tri'), qa = items.find(r => r.type === 'qa');
+  const tp = JSON.parse(tri.payload), qp = JSON.parse(qa.payload);
+  const src = g.SpreadsheetApp.create('round1');
+  const put = (name, rows) => { const sh = src.insertSheet(name); sh.getRange(1, 1, rows.length, rows[0].length).setValues(rows); };
+  put('волонтери', [['Номер', 'Волонтер'], [1, 'Анна'], [2, 'Хтось Інший']]);
+  put('WB_01', [['ID', 'S', 'Статус S', 'C', 'Статус C', 'U', 'Статус U', 'Коментар'],
+    [tri.item_id, tp.S, 'Прийнято', tp.C + ' ще', 'Виправлено вручну', 'Краще інакше', 'Переробити повністю', 'U не нейтральне'],
+    ['WB-9999', 'x', 'Прийнято', 'y', 'Прийнято', 'z', 'Прийнято', '']]);
+  // round 1 showed the choices in another order: map the letter through the choice text
+  const shown = [qp.ch[2], qp.ch[0], qp.ch[1]];
+  put('WB_EVAL_02', [['ID', 'Приклад UK', 'Відповідь A/B/C', 'Статус', 'Коментар'],
+    [qa.item_id, `${qp.ctx}\n\n${qp.q}\n\nA. ${shown[0]}\nB. ${shown[1]}\nC. ${shown[2]}`, 'A', 'Прийнято', '']]);
+  g.addConfig_([['round1_sheet', src.getUrl ? 'https://docs.google.com/spreadsheets/d/' + src.getId() + '/edit' : src.getId(), '']]);
+  const cfg = g.ss_().getSheetByName('config'), keys = g.rows_('config').map(r => r.key);
+  cfg.getRange(keys.indexOf('round1_sheet') + 2, 2).setValue('https://docs.google.com/spreadsheets/d/' + src.getId() + '/edit');
+  g.cache_().remove('cfg');
+  const msg = g.importRound1();
+  assert.match(msg, /додано 2 оцінок/); assert.match(msg, /WB-9999/);
+  g.importRound1();                                                     // idempotent
+  const rv = g.rows_('reviews');
+  assert.strictEqual(rv.length, 2);
+  const t = rv.find(r => r.type === 'tri'), res = JSON.parse(t.result);
+  assert.strictEqual(t.annotator, 'a01', 'same name → existing annotator');
+  assert.deepStrictEqual(res.status, { S: 'ok', C: 'edit', U: 'redo' });
+  assert.strictEqual(res.text.C, tp.C + ' ще');
+  assert.strictEqual(res.why.U[0].reason, 'U не нейтральне');
+  assert.match(res.comment, /U: Краще інакше/, 'a remark typed into the sentence cell is kept as a comment');
+  assert.strictEqual(t.outcome, 'no'); assert.strictEqual(t.source, 'round1'); assert.strictEqual(t.position, 1);
+  assert.strictEqual(rv.find(r => r.type === 'qa').answer, 2, 'letter A → the choice text → index 2');
+  assert.strictEqual(rv.find(r => r.type === 'qa').annotator, 'r1-02');
+  assert.ok(g.rows_('annotators').some(a => a.id === 'r1-02' && a.active === false && !a.token));
+  // not counted: the item is still untouched for everyone else, but a01 does not get it again
+  const d = call(tokens[1], 'dashboard');
+  assert.strictEqual(d.totals.reviews, 0); assert.strictEqual(d.round1.reviews, 2);
+  const seenByA = call(tokens[0], 'next', { mode: 'tri', count: 5 }).cards.map(c => c.item_id);
+  assert.ok(!seenByA.includes(tri.item_id));
+  assert.ok(!call(tokens[0], 'board').board.some(p => p.id.startsWith('r1-')));
+});

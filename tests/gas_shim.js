@@ -57,7 +57,7 @@ function makeEnv(fixtureDir) {
     setFrozenRows() {}
   }
   class SS {
-    constructor(name) { this.id = 'ss' + nextId++; this.name = name; this.sheets = [new Sheet('Sheet1')]; store[this.id] = this; }
+    constructor(name) { this.id = 'ss' + String(nextId++).padStart(30, '0'); this.name = name; this.sheets = [new Sheet('Sheet1')]; store[this.id] = this; }
     getId() { return this.id; }
     getUrl() { return 'https://sheets/' + this.id; }
     getSheetByName(n) { return this.sheets.find(s => s.name === n) || null; }

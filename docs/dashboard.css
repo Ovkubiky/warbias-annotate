@@ -88,3 +88,4 @@ main{max-width:1120px;margin:0 auto;padding:8px 16px 48px;display:grid;grid-temp
 .spin{grid-column:span 12;width:28px;height:28px;margin:60px auto;border:3px solid var(--line);border-top-color:var(--brand);border-radius:50%;animation:sp 1s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
 .err{grid-column:span 12;text-align:center;padding:40px 16px}
+@media (max-width:560px){.alpha{grid-template-columns:repeat(2,1fr)!important}}

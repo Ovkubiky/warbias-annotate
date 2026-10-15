@@ -44,6 +44,17 @@ flag reasons and the severity distribution. People with `admin` = `TRUE` in the 
 per-person numbers, the latest edits and flags, and severity items where ratings are 40+ points apart.
 Numbers are cached on the server for 2 minutes. `dashboard.html?demo` shows sample data.
 
+## Round 1 (the Google Sheets annotation)
+
+`importRound1()` copies the first annotation round into `reviews` with `source = round1`: per-sentence
+statuses, hand edits (a changed sentence becomes an edit, a remark typed into a sentence cell becomes a comment),
+the row comment as the reason for ✕, QA answers (the letter is mapped through the choice text, since the old
+sheets showed choices in their own order) and the row number as `position`. Paste the old spreadsheet's link
+into `config.round1_sheet` and run it from the editor; re-running skips rows already imported.
+Volunteers with the same name as a current annotator are filed under that person (so they are not shown the
+same cards again); the rest become inactive `r1-NN` rows without links. By default round 1 does not count
+towards the review targets and earns no points (`config.count_round1`); the dashboard shows it as a baseline.
+
 ## Deploy
 
 1. `clasp login -u ucu` with the UCU Google account.

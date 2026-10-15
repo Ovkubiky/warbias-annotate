@@ -111,10 +111,26 @@ function splitsCard(d) {
     <p class="note">Третьої оцінки тут немає — такі випадки варто обговорити разом.</p></section>`;
 }
 
+function round1Card(d) {
+  const r = d.round1;
+  if (!r) return "";
+  const a = k => r.alpha[k] && r.alpha[k].value !== null ? r.alpha[k].value.toFixed(2) : "—";
+  return `<section class="card"><h2>Раунд 1 (Google Sheets) — для порівняння</h2>
+    <div class="alpha" style="grid-template-columns:repeat(4,1fr)">
+      <div><span>Оцінок</span><b>${r.reviews}</b><span>${r.items} прикладів</span></div>
+      <div><span>α трійки</span><b>${a("tri")}</b><span>${r.alpha.tri.items} прикл.</span></div>
+      <div><span>α питання</span><b>${a("qa")}</b><span>${r.alpha.qa.items} прикл.</span></div>
+      <div><span>Правки · ✕</span><b>${r.edits} · ${r.flags}</b><span>рядків з правками · позначок</span></div>
+    </div>
+    <h2 style="margin-top:16px">Позначки й номер рядка в аркуші</h2>
+    ${r.position.filter(b => b.n).map(b => `<div class="hrow"><span>рядки ${b.from}–${b.to ?? "…"}</span>${bar([[b.flagged / b.n, "var(--bad)"]], 1)}<em>${pct(b.flagged, b.n)}%</em></div>`).join("")}
+    <p class="note">Ці оцінки збережено в таблиці (source = round1), але до потрібних 2–3 оцінок вони не зараховуються — кожен приклад отримує свіжі незалежні оцінки. Змінити можна в config.count_round1.</p></section>`;
+}
+
 function render(d) {
   const when = d.generated ? new Date(d.generated).toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" }) : "";
   $("#sub").textContent = `${demo ? "Демо-дані · " : ""}оновлено о ${when}${d.isAdmin ? " · повний доступ" : ""}`;
-  $("#main").innerHTML = kpis(d) + typesCard(d) + dailyCard(d) + alphaCard(d) + positionCard(d) + reasonsCard(d) + sevCard(d)
+  $("#main").innerHTML = kpis(d) + typesCard(d) + dailyCard(d) + alphaCard(d) + positionCard(d) + reasonsCard(d) + sevCard(d) + round1Card(d)
     + (d.admin ? peopleCard(d) + recentCard(d) + splitsCard(d)
       : `<p class="lock">Таблиця по людях і стрічка правок доступні координаторам (стовпець admin у таблиці annotators).</p>`);
 }

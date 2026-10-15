@@ -8,7 +8,7 @@ var TABS = {
   config: ['key', 'value', 'note'],
   annotators: ['id', 'name', 'token', 'link', 'active', 'created', 'onboarded', 'practice', 'admin'],
   items: ['item_id', 'type', 'gold', 'group', 'payload'],
-  reviews: ['review_id', 'ts', 'day', 'annotator', 'item_id', 'type', 'outcome', 'answer', 'raw', 'position', 'session', 'dwell_ms', 'result', 'undone', 'edits', 'flags']
+  reviews: ['review_id', 'ts', 'day', 'annotator', 'item_id', 'type', 'outcome', 'answer', 'raw', 'position', 'session', 'dwell_ms', 'result', 'undone', 'edits', 'flags', 'source']
 };
 
 var CONFIG_DEFAULTS = [
@@ -21,7 +21,9 @@ var CONFIG_DEFAULTS = [
   ['dwell_ms', 3000, 'Мінімальний час на картку, мс'],
   ['break_every', 25, 'Після скількох карток поспіль пропонувати перерву'],
   ['lease_minutes', 20, 'Скільки хвилин картка зарезервована за людиною, якій її видали'],
-  ['hf_base', 'https://huggingface.co/datasets/FairForget/WarBias/resolve/main/', 'Звідки importWarBias() бере дані']
+  ['hf_base', 'https://huggingface.co/datasets/FairForget/WarBias/resolve/main/', 'Звідки importWarBias() бере дані'],
+  ['count_round1', false, 'TRUE — оцінки раунду 1 (importRound1) зараховуються до потрібної кількості оцінок'],
+  ['round1_sheet', '', 'Посилання або ID таблиці першого раунду для importRound1()']
 ];
 
 var TZ = 'Europe/Kyiv';
@@ -105,12 +107,166 @@ function makeLinks() {
   var c = config_(), sh = ss_().getSheetByName('annotators');
   var v = sh.getDataRange().getValues();
   for (var i = 1; i < v.length; i++) {
-    if (!v[i][1] || v[i][2]) continue;
+    if (!v[i][1] || v[i][2] || String(v[i][0]).indexOf('r1-') === 0) continue;   // round-1 volunteers get no link
     var token = Utilities.getUuid().replace(/-/g, '').slice(0, 16);
     var id = 'a' + ('0' + i).slice(-2);
     sh.getRange(i + 1, 1, 1, 6).setValues([[id, v[i][1], token, c.pages_url + '?t=' + token, true, new Date()]]);
   }
   cDel_('ann');
+}
+
+/* ---------- round 1 (the Google Sheets annotation) ---------- */
+
+/**
+ * Copy the first annotation round into `reviews` (source = round1), so it is kept next to the new data
+ * and shown on the dashboard as a baseline. Put the old spreadsheet's link in config.round1_sheet and run
+ * this from the editor. Safe to re-run: rows already imported are skipped.
+ * Volunteers become `annotators` rows `r1-NN` without links, unless someone with the same name already
+ * has a link — then their old reviews go under that id, so they are not shown the same cards again.
+ * Whether round 1 counts towards the review targets is config.count_round1 (FALSE by default).
+ */
+function importRound1() {
+  var c = config_(), ref = String(c.round1_sheet || '');
+  if (!ref) {
+    addConfig_([['count_round1', false, 'TRUE — оцінки раунду 1 зараховуються до потрібної кількості оцінок'],
+      ['round1_sheet', '', 'Посилання або ID таблиці першого раунду для importRound1()']]);
+    throw new Error('Вставте посилання на таблицю першого раунду в config.round1_sheet і запустіть ще раз');
+  }
+  var m = ref.match(/[-\w]{25,}/), src = SpreadsheetApp.openById(m ? m[0] : ref);
+  var res = round1Rows_(src, rows_('items'), people_());
+  var sh = ss_().getSheetByName('reviews');
+  ensureReviewCols_(sh);
+  var have = {};
+  reviewIndex_().forEach(function (r) { have[r.review_id] = true; });
+  var fresh = res.rows.filter(function (r) { return !have[r[0]]; });
+  if (fresh.length) sh.getRange(sh.getLastRow() + 1, 1, fresh.length, TABS.reviews.length).setValues(fresh);
+  if (res.newPeople.length) {
+    var ann = ss_().getSheetByName('annotators');
+    ensureCols_(ann, TABS.annotators);
+    ann.getRange(ann.getLastRow() + 1, 1, res.newPeople.length, TABS.annotators.length).setValues(res.newPeople);
+  }
+  ['rv', 'ann', 'board', 'dash'].forEach(cDel_);
+  var msg = 'Раунд 1: додано ' + fresh.length + ' оцінок (уже були: ' + (res.rows.length - fresh.length) + '), ' +
+    'людей: ' + res.people + ' (з них знайдено серед поточних: ' + res.matched + '). ' +
+    'Пропущено: ' + res.missing.length + ' прикладів, яких немає в поточному датасеті' +
+    (res.missing.length ? ' (' + res.missing.slice(0, 10).join(', ') + (res.missing.length > 10 ? '…' : '') + ')' : '') +
+    (res.unparsed ? '; відповідей QA не розпізнано: ' + res.unparsed : '') + '.';
+  Logger.log(msg);
+  return msg;
+}
+
+function addConfig_(rows) {
+  var sh = ss_().getSheetByName('config'), keys = rows_('config').map(function (r) { return r.key; });
+  rows = rows.filter(function (r) { return keys.indexOf(r[0]) < 0; });
+  if (rows.length) sh.getRange(sh.getLastRow() + 1, 1, rows.length, 3).setValues(rows);
+  cDel_('cfg');
+}
+
+/** Pure conversion of the round-1 spreadsheet into review rows (no writes), for importRound1 and tests. */
+function round1Rows_(src, itemRows, people) {
+  var norm = function (t) { return String(t || '').replace(/\s+/g, ' ').trim(); };
+  var key = function (t) { return norm(t).toLowerCase(); };
+  var payload = {};
+  itemRows.forEach(function (r) { try { payload[String(r.item_id)] = JSON.parse(r.payload); } catch (e) {} });
+
+  // volunteers: sheet number → annotator id (an existing person with the same name, or a new r1-NN row)
+  var byName = {};
+  people.forEach(function (p) { if (p.id && p.name) byName[key(p.name)] = String(p.id); });
+  var vol = {}, newPeople = [], matched = 0;
+  var vs = src.getSheetByName('волонтери');
+  (vs ? vs.getDataRange().getValues().slice(1) : []).forEach(function (r) {
+    var n = parseInt(r[0], 10); if (!n || !r[1]) return;
+    var id = byName[key(r[1])];
+    if (id && id.indexOf('r1-') !== 0) matched++;
+    if (!id) {
+      id = 'r1-' + ('0' + n).slice(-2);
+      var row = TABS.annotators.map(function () { return ''; });
+      row[0] = id; row[1] = norm(r[1]); row[4] = false; row[5] = new Date();
+      newPeople.push(row);
+    }
+    vol[n] = id;
+  });
+
+  var ST = { 'прийнято': 'ok', 'переробити повністю': 'redo', 'виправлено вручну': 'edit' };
+  var status = function (v) { return ST[key(v)] || ''; };
+  var rows = [], missing = {}, unparsed = 0;
+  var push = function (sheet, rowNo, pos, id, type, outcome, answer, result) {
+    result.source = 'round1';
+    var r = { review_id: 'r1:' + sheet + ':' + rowNo, item_id: id, type: type, outcome: outcome, answer: answer, result: result };
+    var n = parseInt(sheet.replace(/\D+/g, ''), 10);
+    rows.push([r.review_id, '', '', vol[n] || ('r1-' + ('0' + n).slice(-2)), id, type, outcome, answer === null ? '' : answer, '',
+      pos, 'round1:' + sheet, '', JSON.stringify(result), false].concat(readable_(result), ['round1']));
+  };
+
+  src.getSheets().forEach(function (ws) {
+    var name = ws.getName(), isQa = /^WB_EVAL_\d+$/.test(name), isTri = /^WB_\d+$/.test(name);
+    if (!isQa && !isTri) return;
+    var v = ws.getDataRange().getValues(), pos = 0;
+    for (var i = 1; i < v.length; i++) {
+      var r = v[i], id = norm(r[0]);
+      if (!id) continue;
+      pos++;
+      var p = payload[id];
+      if (!p) { missing[id] = 1; continue; }
+      var comment = norm(isTri ? r[7] : r[4]);
+      if (isTri) {
+        var st = {}, text = {}, why = {}, notes = [];
+        [['S', 1, 2], ['C', 3, 4], ['U', 5, 6]].forEach(function (k) {
+          var s = status(r[k[2]]), cell = norm(r[k[1]]), orig = norm(p[k[0]]);
+          if (cell && cell !== orig) {
+            if (similar_(cell, orig) >= 0.5) { text[k[0]] = cell; if (s !== 'redo') s = 'edit'; }
+            else notes.push(k[0] + ': ' + cell);             // a remark typed into the sentence cell
+          }
+          if (s === 'edit' && !text[k[0]]) notes.push(k[0] + ': позначено «Виправлено вручну», але текст не змінено');
+          st[k[0]] = s;
+          if (s === 'redo') why[k[0]] = [{ frag: null, range: null, reason: comment || 'Переробити повністю' }];
+        });
+        if (!st.S && !st.C && !st.U) { pos--; continue; }   // not annotated yet
+        var res = { status: st };
+        if (Object.keys(text).length) res.text = text;
+        if (Object.keys(why).length) res.why = why;
+        if (comment || notes.length) res.comment = [comment].concat(notes).filter(String).join(' | ');
+        var bad = ['S', 'C', 'U'].some(function (k) { return st[k] === 'redo' || st[k] === 'edit'; });
+        push(name, i + 1, pos, id, 'tri', bad ? 'no' : 'yes', null, res);
+      } else {
+        var s = status(r[3]);
+        if (!s && !norm(r[2])) { pos--; continue; }
+        // the cell holds "context\n\nquestion\n\nA. …\nB. …\nC. …"; map the letter to the choice text
+        var raw = String(r[1] || ''), opts = {}, ans = null;
+        raw.split('\n').forEach(function (l) { var mm = l.match(/^\s*([ABCАВС])[.)]\s*(.+)$/); if (mm) opts['ABCАВС'.indexOf(mm[1]) % 3] = key(mm[2]); });
+        var letter = norm(r[2]).toUpperCase().replace('А', 'A').replace('В', 'B').replace('С', 'C');
+        var li = 'ABC'.indexOf(letter);
+        if (li >= 0) {
+          var chosen = opts[li];
+          ans = chosen ? (p.ch || []).map(key).indexOf(chosen) : -1;
+          if (ans < 0) { ans = null; unparsed++; }
+        }
+        var parts = raw.split(/\n\s*\n/), qres = { status: { X: s === 'ok' ? 'ok' : s } };
+        var ctx = norm(parts[0]), qtext = norm(parts[1]);
+        if (ctx && ctx !== norm(p.ctx) && similar_(ctx, p.ctx) >= 0.5) { qres.text = { X: ctx }; if (s !== 'redo') qres.status.X = 'edit'; }
+        if (qtext && p.q && qtext !== norm(p.q) && similar_(qtext, p.q) >= 0.5) (qres.text = qres.text || {}).Q = qtext;
+        if (qres.status.X === 'redo') qres.why = { X: [{ frag: null, range: null, reason: comment || 'Переробити повністю' }] };
+        if (comment) qres.comment = comment;
+        var qbad = qres.status.X === 'redo' || qres.status.X === 'edit';
+        push(name, i + 1, pos, id, 'qa', qbad ? 'no' : 'yes', ans, qres);
+      }
+    }
+  });
+  return { rows: rows, newPeople: newPeople, people: Object.keys(vol).length, matched: matched,
+    missing: Object.keys(missing), unparsed: unparsed };
+}
+
+/** Word-level similarity 0..1 (2·LCS / total words), to tell an edited sentence from a remark. */
+function similar_(a, b) {
+  var x = String(a || '').toLowerCase().split(/\s+/).filter(String), y = String(b || '').toLowerCase().split(/\s+/).filter(String);
+  if (!x.length || !y.length) return 0;
+  var prev = new Array(y.length + 1).fill(0);
+  for (var i = 1; i <= x.length; i++) {
+    var cur = [0];
+    for (var j = 1; j <= y.length; j++) cur[j] = x[i - 1] === y[j - 1] ? prev[j - 1] + 1 : Math.max(prev[j], cur[j - 1]);
+    prev = cur;
+  }
+  return 2 * prev[y.length] / (x.length + y.length);
 }
 
 /* ---------- web app ---------- */
@@ -191,7 +347,7 @@ function submit_(me, req) {
     var rows = list.filter(function (r) { return r && r.review_id && !existing[r.review_id]; }).map(function (r) {
       return [r.review_id, now, day, me.id, r.item_id, r.type, r.outcome, r.answer === null || r.answer === undefined ? '' : r.answer,
         r.raw === null || r.raw === undefined ? '' : r.raw, r.position || '', r.session || '', r.dwell_ms || '',
-        JSON.stringify(r.result || {}), false].concat(readable_(r.result));
+        JSON.stringify(r.result || {}), false].concat(readable_(r.result), ['']);
     });
     if (rows.length) {
       ensureReviewCols_(sh);
@@ -248,6 +404,8 @@ function readable_(res) {
     });
     if (!(why[k] || []).length && st[k] === 'redo') flags.push(k + ' ✕');
   });
+  // a free-text remark (round 1) that is not already shown as a reason
+  if (res.comment && flags.join('\n').indexOf(res.comment) < 0) flags.push('💬 ' + res.comment);
   return [edits, flags.join('\n')];
 }
 /** Sheets made before `edits`/`flags` existed get the headers once, and their old rows filled in. */
@@ -289,7 +447,7 @@ function board_(me) {
   var b = cGet_('board');
   if (!b) {
     var items = itemIndex_(), reviews = reviewIndex_();
-    var people = people_().filter(function (a) { return a.id; }).map(function (a) { return { id: a.id, name: a.name }; });
+    var people = people_().filter(function (a) { return a.id && String(a.id).indexOf('r1-') !== 0; }).map(function (a) { return { id: a.id, name: a.name }; });
     b = { board: leaderboard(items.list, reviews, people), team: teamProgress(items.list, reviews, opts_(config_())) };
     cPut_('board', b, 60);
   }
@@ -323,10 +481,10 @@ function dashboard_(me) {
       var day = r.day instanceof Date ? Utilities.formatDate(r.day, TZ, 'yyyy-MM-dd') : String(r.day);
       return { review_id: String(r.review_id), item_id: String(r.item_id), annotator: String(r.annotator), type: r.type,
         outcome: r.outcome, answer: r.answer, raw: r.raw, position: r.position, dwell_ms: r.dwell_ms, day: day, ts: ts,
-        undone: r.undone === true || r.undone === 'TRUE', result: res };
+        undone: r.undone === true || r.undone === 'TRUE', result: res, src: r.source === 'round1' ? 'r1' : '' };
     });
     var people = people_().filter(function (a) { return a.id; }).map(function (a) {
-      return { id: String(a.id), name: a.name, onboarded: !!a.onboarded };
+      return { id: String(a.id), name: a.name, onboarded: !!a.onboarded, active: a.active !== false && a.active !== 'FALSE' };
     });
     d = dashboardStats(itemIndex_().list, reviews, people, opts_(config_()));
     d.generated = new Date().toISOString();
@@ -375,7 +533,8 @@ function opts_(c) {
   return {
     minReviews: { tri: +c.min_reviews_tri || 2, qa: +c.min_reviews_qa || 2, sev: +c.min_reviews_sev || 2 },
     maxReviews: +c.max_reviews || 3, goldEvery: +c.gold_every || 10,
-    leaseMinutes: +c.lease_minutes || 20, batch: 3
+    leaseMinutes: +c.lease_minutes || 20, batch: 3,
+    countRound1: c.count_round1 === true || String(c.count_round1).toUpperCase() === 'TRUE'
   };
 }
 
@@ -420,7 +579,7 @@ function compactReview_(r) {
   return [String(r[ix('review_id')]), String(r[ix('item_id')]), String(r[ix('annotator')]), String(r[ix('outcome')]),
     r[ix('answer')] === '' || r[ix('answer')] === null ? '' : r[ix('answer')],
     day instanceof Date ? Utilities.formatDate(day, TZ, 'yyyy-MM-dd') : String(day),
-    (r[ix('undone')] === true || r[ix('undone')] === 'TRUE') ? 1 : 0];
+    (r[ix('undone')] === true || r[ix('undone')] === 'TRUE') ? 1 : 0, r[ix('source')] === 'round1' ? 1 : 0];
 }
 function reviewRows_() {
   var c = cGet_('rv');
@@ -438,7 +597,7 @@ function updateReviewCache_(fn) {          // callers hold the script lock
 }
 function reviewIndex_() {
   return reviewRows_().map(function (r) {
-    return { review_id: r[0], item_id: r[1], annotator: r[2], outcome: r[3], answer: r[4], day: r[5], undone: r[6] === 1 };
+    return { review_id: r[0], item_id: r[1], annotator: r[2], outcome: r[3], answer: r[4], day: r[5], undone: r[6] === 1, src: r[7] ? 'r1' : '' };
   });
 }
 
