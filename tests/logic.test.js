@@ -117,3 +117,38 @@ test('streak counts consecutive days ending at the last active day', () => {
   assert.strictEqual(L.streak(['2026-10-10', '2026-10-12', '2026-10-13', '2026-10-11']), 4);
   assert.strictEqual(L.streak(['2026-10-01', '2026-10-13']), 1);
 });
+
+test('Krippendorff alpha: hand-checked nominal and interval values', () => {
+  const L = require('../apps-script/Logic.js');
+  assert.strictEqual(L.krippAlpha([['a', 'a'], ['b', 'b']], 'nominal'), 1);
+  // coincidences o11=2, o22=2, o12=o21=1 → α = 1 − 5·2/18
+  assert.ok(Math.abs(L.krippAlpha([[1, 1], [2, 2], [1, 2]], 'nominal') - (1 - 10 / 18)) < 1e-9);
+  assert.ok(L.krippAlpha([[0.1, 0.15], [0.8, 0.85], [0.5, 0.45]], 'interval') > 0.95);
+  assert.strictEqual(L.krippAlpha([['a']], 'nominal'), null);
+});
+
+test('dashboard: progress bands, position buckets, reasons, edits', () => {
+  const L = require('../apps-script/Logic.js');
+  const items = [
+    { item_id: 't1', type: 'tri' }, { item_id: 't2', type: 'tri' }, { item_id: 't3', type: 'tri' }, { item_id: 't4', type: 'tri' },
+    { item_id: 's1', type: 'sev' }, { item_id: 'g1', type: 'tri', gold: 'ok' }
+  ];
+  const r = (a, id, outcome, extra = {}) => ({ annotator: a, item_id: id, outcome, answer: '', day: '2026-10-15', position: 1, ...extra });
+  const reviews = [
+    r('a', 't1', 'yes'), r('b', 't1', 'yes'),                                 // done
+    r('a', 't2', 'no', { position: 30, result: { why: { C: [{ frag: 'x', reason: 'Трійка непаралельна' }] } } }),
+    r('b', 't2', 'yes'),                                                      // waiting for a 3rd opinion
+    r('a', 't3', 'no', { result: { text: { S: 'нове' } } }),                  // one review
+    r('a', 's1', 'yes', { raw: 0.1 }), r('b', 's1', 'yes', { raw: 0.9 }),
+    r('a', 'g1', 'yes'), r('b', 't4', 'yes', { undone: true })
+  ];
+  const d = L.dashboardStats(items, reviews, [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }]);
+  assert.deepStrictEqual(d.types.tri, { total: 4, done: 1, third: 1, partial: 1, untouched: 1 });
+  assert.strictEqual(d.totals.reviews, 7);
+  assert.strictEqual(d.totals.edits, 1);
+  assert.deepStrictEqual(d.reasons, [{ reason: 'Трійка непаралельна', n: 1 }]);
+  assert.deepStrictEqual(d.position.map(b => [b.n, b.flagged]).slice(0, 3), [[4, 1], [0, 0], [1, 1]]);
+  assert.strictEqual(d.admin.sevSplits[0].item_id, 's1');
+  assert.strictEqual(d.admin.people.find(p => p.id === 'a').cards, 4);
+  assert.strictEqual(d.admin.recent.length, 2);
+});

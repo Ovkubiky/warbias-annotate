@@ -6,7 +6,7 @@
 
 var TABS = {
   config: ['key', 'value', 'note'],
-  annotators: ['id', 'name', 'token', 'link', 'active', 'created', 'onboarded', 'practice'],
+  annotators: ['id', 'name', 'token', 'link', 'active', 'created', 'onboarded', 'practice', 'admin'],
   items: ['item_id', 'type', 'gold', 'group', 'payload'],
   reviews: ['review_id', 'ts', 'day', 'annotator', 'item_id', 'type', 'outcome', 'answer', 'raw', 'position', 'session', 'dwell_ms', 'result', 'undone', 'edits', 'flags']
 };
@@ -138,6 +138,7 @@ function handle_(req) {
       case 'undo': return undo_(me, req);
       case 'board': return board_(me);
       case 'onboarded': return onboarded_(me, req);
+      case 'dashboard': return dashboard_(me);
     }
     return { ok: false, error: 'unknown_action' };
   } catch (err) {
@@ -304,6 +305,38 @@ function stats_(id) {
     done: mine.length, remaining: remainingFor(items.list, reviews, id, opts),
     team: teamProgress(items.list, reviews, opts), streak: streak(Object.keys(days))
   };
+}
+
+/**
+ * Progress dashboard. Everyone with a link sees team numbers; people with `admin` = TRUE in the
+ * annotators tab also see per-person numbers and the latest edits and flags. Cached for 2 minutes.
+ */
+function dashboard_(me) {
+  var d = cGet_('dash');
+  if (!d) {
+    var sh = ss_().getSheetByName('annotators');
+    if (people_().length && !('admin' in people_()[0])) { ensureCols_(sh, TABS.annotators); cDel_('ann'); }
+    var reviews = rows_('reviews').map(function (r) {
+      var res = {};
+      try { res = JSON.parse(r.result || '{}'); } catch (e) {}
+      var ts = r.ts instanceof Date ? r.ts.getTime() : (Date.parse(r.ts) || null);
+      var day = r.day instanceof Date ? Utilities.formatDate(r.day, TZ, 'yyyy-MM-dd') : String(r.day);
+      return { review_id: String(r.review_id), item_id: String(r.item_id), annotator: String(r.annotator), type: r.type,
+        outcome: r.outcome, answer: r.answer, raw: r.raw, position: r.position, dwell_ms: r.dwell_ms, day: day, ts: ts,
+        undone: r.undone === true || r.undone === 'TRUE', result: res };
+    });
+    var people = people_().filter(function (a) { return a.id; }).map(function (a) {
+      return { id: String(a.id), name: a.name, onboarded: !!a.onboarded };
+    });
+    d = dashboardStats(itemIndex_().list, reviews, people, opts_(config_()));
+    d.generated = new Date().toISOString();
+    cPut_('dash', d, 120);
+  }
+  var admin = me.admin === true || String(me.admin).toUpperCase() === 'TRUE';
+  var out = JSON.parse(JSON.stringify(d));
+  if (!admin) delete out.admin;
+  out.ok = true; out.isAdmin = admin; out.me = me.id;
+  return out;
 }
 
 /* ---------- sheet helpers ---------- */

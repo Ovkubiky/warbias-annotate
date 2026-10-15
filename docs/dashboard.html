@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>WarBias Progress</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+<header class="head">
+  <div>
+    <h1>Прогрес WarBias</h1>
+    <p class="sub" id="sub">Завантажую…</p>
+  </div>
+  <div class="head-act">
+    <button class="btn ghost" id="refresh">Оновити</button>
+    <a class="btn" id="back" href="./">До карток</a>
+  </div>
+</header>
+<main id="main"><div class="spin" aria-hidden="true"></div></main>
+<script src="config.js"></script>
+<script src="logic.js"></script>
+<script src="sample-data.js"></script>
+<script src="api.js"></script>
+<script src="dashboard.js"></script>
+</body>
+</html>

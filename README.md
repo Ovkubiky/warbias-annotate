@@ -36,6 +36,14 @@ so position and fatigue effects can be measured.
   `importWarBias()` fills it from Hugging Face; any other data works if the payload has the same fields.
 - `reviews` — one row per answer. `undone = TRUE` rows were taken back with ↩ and should be ignored.
 
+## Progress dashboard
+
+`dashboard.html` (also linked from 🏆) opens with the same personal link. Everyone sees team progress,
+reviews per day, Krippendorff's α per card type, flag rate by card position in the session (fatigue check),
+flag reasons and the severity distribution. People with `admin` = `TRUE` in the `annotators` tab also see
+per-person numbers, the latest edits and flags, and severity items where ratings are 40+ points apart.
+Numbers are cached on the server for 2 minutes. `dashboard.html?demo` shows sample data.
+
 ## Deploy
 
 1. `clasp login -u ucu` with the UCU Google account.

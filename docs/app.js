@@ -559,7 +559,8 @@ function boardHTML(r, stale) {
     <div class="stats"><div class="stat"><b>${pctAcc}</b><span>точність</span></div><div class="stat"><b>${me.tickets}</b><span>квитки</span></div><div class="stat"><b>🔥 ${me.streak}</b><span>дні поспіль</span></div></div>
     <div class="lb">${top.map(p => `<div class="${p.id === r.me ? "me" : ""}"><span>${r.board.indexOf(p) + 1}</span><span>${p.id === r.me ? "Ви" : esc(p.name)}</span><em>${p.accuracy === null ? "" : Math.round(p.accuracy * 100) + "%"}</em><b>${p.score}</b></div>`).join("")}</div>
     <p>Бали = картки × точність на прихованих контрольних прикладах${me.accuracy === null ? " (поки контрольних не було, рахуємо просто картки)" : ""}. Прийняти чи позначити — однаково. Квиток у розіграш — за кожні 50 карток при точності від 80%.</p>
-    <p>Команда: ${r.team.done} з ${r.team.total} карток мають усі потрібні оцінки.${stale ? ` <span class="sync">оновлюю…</span>` : ""}</p>`;
+    <p>Команда: ${r.team.done} з ${r.team.total} карток мають усі потрібні оцінки.${stale ? ` <span class="sync">оновлюю…</span>` : ""}</p>
+    <p><a href="dashboard.html${st.api && st.api.demo ? "?demo" : ""}" style="color:var(--brand);font-weight:600">📊 Дашборд прогресу →</a></p>`;
 }
 let boardReq = null;
 function loadBoard() {

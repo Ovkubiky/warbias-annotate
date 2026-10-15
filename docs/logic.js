@@ -153,4 +153,141 @@ function streak(days) {
   return n;
 }
 
-if (typeof module !== 'undefined') module.exports = { LOGIC_DEFAULTS: LOGIC_DEFAULTS, hash32: hash32, itemStats: itemStats, targetReviews: targetReviews, pickNext: pickNext, remainingFor: remainingFor, teamProgress: teamProgress, leaderboard: leaderboard, streak: streak };
+/**
+ * Krippendorff's alpha. units: arrays of values given to the same item by different people
+ * (units with fewer than 2 values are ignored). metric: 'nominal' or 'interval'.
+ */
+function krippAlpha(units, metric) {
+  var pool = [], doSum = 0;
+  var spread = function (vals) {            // sum of δ over ordered pairs i ≠ j
+    var m = vals.length;
+    if (metric === 'interval') {
+      var s = 0, s2 = 0;
+      vals.forEach(function (v) { s += v; s2 += v * v; });
+      return 2 * m * s2 - 2 * s * s;
+    }
+    var c = {}, sq = 0;
+    vals.forEach(function (v) { c[v] = (c[v] || 0) + 1; });
+    Object.keys(c).forEach(function (k) { sq += c[k] * c[k]; });
+    return m * m - sq;
+  };
+  units.forEach(function (u) {
+    if (u.length < 2) return;
+    doSum += spread(u) / (u.length - 1);
+    pool = pool.concat(u);
+  });
+  var n = pool.length;
+  if (n < 2) return null;
+  var de = spread(pool) / (n - 1);
+  return de === 0 ? null : 1 - doSum / de;
+}
+
+var POSITION_BUCKETS = [[1, 10], [11, 25], [26, 50], [51, 100], [101, Infinity]];
+
+/**
+ * Everything the progress dashboard shows, from the same inputs as the rest of the logic.
+ * reviews also carry: type, raw, position, dwell_ms, day, ts (ms), result ({status, text, why}).
+ * people: [{id, name, onboarded}]. Per-person and per-item details are under `admin`.
+ */
+function dashboardStats(items, reviews, people, opts) {
+  opts = opts || LOGIC_DEFAULTS;
+  var live = reviews.filter(function (r) { return !r.undone; });
+  var typeOf = {}, gold = {};
+  items.forEach(function (it) { typeOf[it.item_id] = it.type; if (it.gold) gold[it.item_id] = it.gold; });
+  live.forEach(function (r) { r.type = r.type || typeOf[r.item_id]; });
+  var stats = itemStats(live);
+
+  var types = {};
+  items.forEach(function (it) {
+    if (it.gold) return;
+    var t = types[it.type] || (types[it.type] = { total: 0, done: 0, third: 0, partial: 0, untouched: 0 });
+    var s = stats[it.item_id], n = s ? s.n : 0, min = opts.minReviews[it.type] || 2;
+    t.total++;
+    if (!n) t.untouched++;
+    else if (n >= targetReviews(it, s, opts)) t.done++;
+    else if (n >= min) t.third++;
+    else t.partial++;
+  });
+
+  var daily = {}, reasons = {}, sevHist = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], edits = 0, flags = 0;
+  var pos = POSITION_BUCKETS.map(function (b) { return { from: b[0], to: b[1] === Infinity ? null : b[1], n: 0, flagged: 0 }; });
+  var byItem = {};
+  live.forEach(function (r) {
+    if (gold[r.item_id]) return;
+    var d = daily[r.day] || (daily[r.day] = { day: r.day, tri: 0, qa: 0, sev: 0 });
+    d[r.type] = (d[r.type] || 0) + 1;
+    var res = r.result || {};
+    if (res.text && Object.keys(res.text).length) edits++;
+    Object.keys(res.why || {}).forEach(function (k) {
+      (res.why[k] || []).forEach(function (it) { flags++; reasons[it.reason] = (reasons[it.reason] || 0) + 1; });
+    });
+    if (r.type === 'sev' && r.raw !== '' && r.raw !== null && r.raw !== undefined) sevHist[Math.min(9, Math.floor(+r.raw * 10))]++;
+    if (r.type !== 'sev' && +r.position > 0) {
+      var b = pos.filter(function (x) { return +r.position >= x.from && (x.to === null || +r.position <= x.to); })[0];
+      if (b) { b.n++; if (r.outcome === 'no') b.flagged++; }
+    }
+    (byItem[r.item_id] = byItem[r.item_id] || []).push(r);
+  });
+
+  var units = { tri: [], qa: [], sev: [] }, sevSplits = [];
+  Object.keys(byItem).forEach(function (id) {
+    var rs = byItem[id], t = typeOf[id];
+    if (rs.length < 2) return;
+    if (t === 'tri') units.tri.push(rs.map(function (r) { return r.outcome; }));
+    if (t === 'qa') units.qa.push(rs.filter(function (r) { return r.answer !== '' && r.answer !== null; }).map(function (r) { return String(r.answer); }));
+    if (t === 'sev') {
+      var v = rs.map(function (r) { return +r.raw; });
+      units.sev.push(v);
+      var gap = Math.max.apply(null, v) - Math.min.apply(null, v);
+      if (gap >= 0.4) sevSplits.push({ item_id: id, raws: v, gap: Math.round(gap * 100) / 100 });
+    }
+  });
+  var alpha = {};
+  Object.keys(units).forEach(function (t) {
+    var a = krippAlpha(units[t], t === 'sev' ? 'interval' : 'nominal');
+    alpha[t] = { value: a === null ? null : Math.round(a * 1000) / 1000, items: units[t].filter(function (u) { return u.length > 1; }).length };
+  });
+
+  var board = leaderboard(items, live, people), per = {};
+  board.forEach(function (b) { per[b.id] = b; });
+  var persons = people.map(function (p) {
+    var mine = live.filter(function (r) { return r.annotator === p.id && !gold[r.item_id]; });
+    var judged = mine.filter(function (r) { return r.type !== 'sev'; });
+    var dw = mine.map(function (r) { return +r.dwell_ms || 0; }).filter(Boolean).sort(function (a, b) { return a - b; });
+    var days = mine.map(function (r) { return r.day; }).sort();
+    return {
+      id: p.id, name: p.name, onboarded: !!p.onboarded, cards: mine.length,
+      days: Object.keys(mine.reduce(function (m, r) { m[r.day] = 1; return m; }, {})).length,
+      last: days.length ? days[days.length - 1] : null,
+      flagRate: judged.length ? Math.round(judged.filter(function (r) { return r.outcome === 'no'; }).length / judged.length * 100) / 100 : null,
+      edits: mine.filter(function (r) { return r.result && r.result.text && Object.keys(r.result.text).length; }).length,
+      medianDwell: dw.length ? dw[Math.floor(dw.length / 2)] : null,
+      accuracy: per[p.id] ? per[p.id].accuracy : null
+    };
+  }).sort(function (a, b) { return b.cards - a.cards; });
+
+  var recent = live.filter(function (r) {
+    var res = r.result || {};
+    return (res.text && Object.keys(res.text).length) || (res.why && Object.keys(res.why).length);
+  }).sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); }).slice(0, 40).map(function (r) {
+    var res = r.result, fl = [];
+    Object.keys(res.why || {}).forEach(function (k) {
+      (res.why[k] || []).forEach(function (it) { fl.push({ k: k, frag: it.frag || null, reason: it.reason }); });
+    });
+    return { day: r.day, ts: r.ts || null, annotator: r.annotator, item_id: r.item_id, type: r.type, text: res.text || {}, flags: fl };
+  });
+
+  return {
+    totals: { reviews: live.filter(function (r) { return !gold[r.item_id]; }).length, edits: edits, flags: flags,
+      people: persons.filter(function (p) { return p.cards; }).length, team: teamProgress(items, live, opts) },
+    types: types,
+    daily: Object.keys(daily).sort().map(function (k) { return daily[k]; }),
+    alpha: alpha,
+    position: pos,
+    reasons: Object.keys(reasons).map(function (k) { return { reason: k, n: reasons[k] }; }).sort(function (a, b) { return b.n - a.n; }).slice(0, 12),
+    sevHist: sevHist,
+    admin: { people: persons, recent: recent, sevSplits: sevSplits.sort(function (a, b) { return b.gap - a.gap; }).slice(0, 30) }
+  };
+}
+
+if (typeof module !== 'undefined') module.exports = { LOGIC_DEFAULTS: LOGIC_DEFAULTS, hash32: hash32, itemStats: itemStats, targetReviews: targetReviews, pickNext: pickNext, remainingFor: remainingFor, teamProgress: teamProgress, leaderboard: leaderboard, streak: streak, krippAlpha: krippAlpha, dashboardStats: dashboardStats };

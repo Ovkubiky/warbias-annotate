@@ -147,3 +147,22 @@ test('rows saved before the readable columns existed are filled on the first new
   call(tokens[1], 'submit', { reviews: [review(card)] });
   assert.strictEqual(g.rows_('reviews')[0].edits, 'C: Стара правка.');
 });
+
+test('dashboard: team numbers for everyone, details only for admins', () => {
+  const { tokens, call, g } = boot();
+  for (let k = 0; k < 3; k++) {
+    const r = call(tokens[k], 'next', { count: 3 });
+    call(tokens[k], 'submit', { reviews: r.cards.map(c => review(c, k ? 'yes' : 'no', { position: 1, result: k ? {} : { text: { S: 'нове' } } })) });
+  }
+  const d = call(tokens[1], 'dashboard');
+  assert.ok(d.ok, d.error); assert.strictEqual(d.isAdmin, false); assert.strictEqual(d.admin, undefined);
+  assert.strictEqual(d.totals.reviews, 9);
+  const sh = g.ss_().getSheetByName('annotators');
+  const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  assert.ok(head.includes('admin'), 'admin column added to an old sheet');
+  sh.getRange(2, head.indexOf('admin') + 1).setValue(true); g.cache_().remove('ann');
+  const a = call(tokens[0], 'dashboard');
+  assert.strictEqual(a.isAdmin, true);
+  assert.strictEqual(a.admin.people.find(p => p.id === 'a01').edits, 3);
+  assert.strictEqual(a.admin.recent.length, 3);
+});

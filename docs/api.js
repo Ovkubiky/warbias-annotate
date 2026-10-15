@@ -22,7 +22,8 @@ function RemoteApi(url, token) {
     submit: (reviews) => call("submit", { reviews }),
     undo: (review_id) => call("undo", { review_id }),
     board: () => call("board", {}),
-    onboarded: (results) => call("onboarded", { results })
+    onboarded: (results) => call("onboarded", { results }),
+    dashboard: () => call("dashboard", {})
   };
 }
 
@@ -66,6 +67,13 @@ function DemoApi() {
       const rv = load(); rv.forEach(r => { if (r.review_id === review_id) r.undone = true; }); save(rv);
       return wait({ ok: true, found: true, stats: stats() });
     },
-    board: () => wait({ ok: true, me: me.id, board: leaderboard(items, all(), [me, ...others]), team: teamProgress(items, all()) })
+    board: () => wait({ ok: true, me: me.id, board: leaderboard(items, all(), [me, ...others]), team: teamProgress(items, all()) }),
+    dashboard: () => {
+      const typeOf = Object.fromEntries(items.map(it => [it.item_id, it.type]));
+      const rv = all().map((r, i) => ({ position: (i % 40) + 1, dwell_ms: 9000, ...r, type: r.type || typeOf[r.item_id],
+        raw: r.raw ?? (typeOf[r.item_id] === "sev" ? ((i * 37) % 100) / 100 : "") }));
+      const d = dashboardStats(items, rv, [me, ...others]);
+      return wait({ ok: true, isAdmin: true, me: me.id, generated: new Date().toISOString(), ...d });
+    }
   };
 }

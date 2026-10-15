@@ -160,6 +160,12 @@ async def main():
         check("done screen when nothing left", await pg.locator(".state h2").count() == 1)
         await pg.screenshot(path="/tmp/wb_done.png") if False else None
 
+        # progress dashboard (demo data)
+        await pg.goto(PAGE.replace("index.html", "dashboard.html"))
+        await pg.wait_for_selector(".kpi")
+        check("dashboard renders all sections", await pg.locator("section.card").count() >= 10)
+        check("dashboard shows my flag reason", "Звучить неприродно" in await pg.inner_text("main"))
+
         print(f"passed {ok}, failed {len(bad)}: {bad}\nerrors: {errs}")
         await b.close()
 
