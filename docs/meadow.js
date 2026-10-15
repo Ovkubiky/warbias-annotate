@@ -1,8 +1,8 @@
-/* Bottom strip: a meadow that grows with your work (plus ripples and a fake terminal). */
+/* Bottom strip: a meadow that grows with your work (plus ripples). */
 /* ---------- brainrot strip: a meadow that grows with your work ---------- */
-const SCENES=[["meadow","Луг"],["ripples","Брижі"],["term","Термінал"]];
-const cv=$("#cv"), ctx=cv.getContext("2d"), term=$("#term");
-let sceneI=0, rotOn=true, raf, termTimer, scene=null, W=0, H=0, last=0;
+const SCENES=[["meadow","Луг"],["ripples","Брижі"]];
+const cv=$("#cv"), ctx=cv.getContext("2d");
+let sceneI=0, rotOn=true, raf, scene=null, W=0, H=0, last=0;
 const KEY="wb2-"; // new prefix: settings from earlier prototype versions are ignored, everyone starts with the meadow open
 function store(k,v){ try{ if(v===undefined) return localStorage.getItem(KEY+k); localStorage.setItem(KEY+k,v);}catch(_){return null} }
 /* One flower per finished card: "yes" = sunflower (accepted), "no" = cornflower (found a problem).
@@ -114,15 +114,6 @@ const Scenes={
     }
   }
 };
-const TERM=[["c","> проаннотуй решту WarBias"],["","⏺ Read(WarBias/uk/unassigned.jsonl)"],["d","  ⎿  Read 1059 lines"],["","⏺ Перевіряю, чи C справді заперечує S…"],["","⏺ Update(review_queue.csv)"],["g","  ⎿  3 additions, 1 removal"],["d","✻ Роздумую над контрстереотипами… (12s · esc to interrupt)"],["","⏺ Bash(python compute_alpha.py)"],["g","  ⎿  α = 0.71"],["","⏺ Готово. Але людина все одно має перевірити."]];
-function runTerm(){
-  term.innerHTML=""; let li=0, ci=0, cur=null;
-  termTimer=setInterval(()=>{
-    if(!cur){ if(li>=TERM.length){term.innerHTML="";li=0;} cur=document.createElement("div"); cur.className=TERM[li][0]; term.appendChild(cur); ci=0; }
-    const line=TERM[li][1]; cur.textContent=line.slice(0,++ci); if(ci>=line.length){cur=null;li++;}
-    while(term.scrollHeight>term.clientHeight&&term.firstChild) term.firstChild.remove();
-  },20);
-}
 function loop(ts){
   const dt=Math.min(.05,(ts-(last||ts))/1000); last=ts;
   ctx.clearRect(0,0,W,H); scene.step(dt); scene.draw();
@@ -137,12 +128,10 @@ function rotEvent(dir){
   if(rotOn&&scene){ scene.on(dir); return; }
   kinds.push(dir==="yes"?"yes":"no"); saveKinds();   // keep growing even when the strip is hidden
 }
-function stopRot(){ cancelAnimationFrame(raf); clearInterval(termTimer); last=0; }
+function stopRot(){ cancelAnimationFrame(raf); last=0; }
 function playRot(){
   stopRot(); readColors(); const id=SCENES[sceneI][0];
   $("#rotName").textContent=SCENES[sceneI][1]; updBadges();
-  term.hidden=id!=="term"; cv.hidden=id==="term";
-  if(id==="term"){ scene=null; runTerm(); return; }
   fit(); scene=Scenes[id]; scene.init(); raf=requestAnimationFrame(loop);
 }
 let rotDown=false;
@@ -152,8 +141,6 @@ cv.addEventListener("pointermove",e=>{ const [x,y]=rotXY(e); scene&&scene.move&&
 cv.addEventListener("pointerup",()=>rotDown=false); cv.addEventListener("pointercancel",()=>rotDown=false);
 // swiping a card also stirs the grass
 addEventListener("pointermove",e=>{ if(scene===Scenes.meadow&&dragged){ const c=cv.getBoundingClientRect(); scene.move(e.clientX-c.left); } });
-const TAPLINES=["> ще одну трійку, будь ласка","⏺ Відчуваю стереотип у реченні U…","✻ Медитую над контрстереотипом… (3s)","⏺ Read(твої_думки.txt)","  ⎿  α підвищилось на 0.01"];
-term.addEventListener("pointerdown",()=>{ const d=document.createElement("div"); d.className="c"; d.textContent=TAPLINES[Math.random()*TAPLINES.length|0]; term.appendChild(d); while(term.scrollHeight>term.clientHeight&&term.firstChild) term.firstChild.remove(); });
 
 /* bouquets: every 10 cards, drawn from that batch's flowers */
 function drawBouquet(c,list,seed){
