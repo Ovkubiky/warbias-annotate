@@ -64,17 +64,17 @@ async def full_walk(b):
     await shot(pg, "03-flag-c")
 
     await pg.tap('[data-k="C"] .ua'); await pg.tap('[data-k="C"] .c-bad'); await wait_step(pg, 4)
-    await pg.tap('[data-k="C"] .w[data-i="6"]'); await pg.tap('[data-k="C"] .w[data-i="9"]'); await wait_step(pg, 5)
+    await pg.tap('[data-k="C"] .w[data-i="0"]'); await pg.tap('[data-k="C"] .w[data-i="1"]'); await wait_step(pg, 5)
     await shot(pg, "04-reason")
-    await pg.select_option('[data-k="C"] .reason', "Звучить неприродно")
+    await pg.select_option('[data-k="C"] .reason', "Трійка непаралельна")
     await pg.tap('[data-k="C"] .add'); await wait_step(pg, 6)
-    check("fragment picked", await pg.evaluate("st.cur.why.C[0].frag") == "на відгуки про роботу")
+    check("fragment picked", await pg.evaluate("st.cur.why.C[0].frag") == "Реакції ветеранів")
     await shot(pg, "05-swipe")
     await pg.tap("#yesBtn"); await wait_step(pg, 7)
     check("practice triplet not saved as a review", await pg.evaluate("!localStorage.getItem('wb-demo-reviews')"))
     await pg.wait_for_selector(".onb-modal .diff")
-    check("colleague's fix shown as a diff", await pg.locator(".onb-modal .diff ins").count() >= 5
-          and "зауваження" in await pg.inner_text(".onb-modal .diff"))
+    check("colleague's fix shown as a diff", await pg.locator(".onb-modal .diff p").count() == 3
+          and "на зауваження про свою роботу." in await pg.inner_text(".onb-modal .diff"))
     await shot(pg, "05b-colleague")
     await pg.tap(".onb-modal [data-pri]"); await wait_step(pg, 8)
 
@@ -112,7 +112,7 @@ async def full_walk(b):
     check("real card after onboarding", not await pg.evaluate("st.cur.practice"))
     res = json.loads(await pg.evaluate("localStorage.getItem('wb-demo-onboarded')"))
     check("results: not skipped", res["skipped"] is False)
-    check("results: C flagged with reason", res["tri"]["status"]["C"] == "redo" and res["tri"]["why"]["C"][0]["reason"] == "Звучить неприродно")
+    check("results: C flagged with reason", res["tri"]["status"]["C"] == "redo" and res["tri"]["why"]["C"][0]["reason"] == "Трійка непаралельна")
     check("results: S fixed", res["tri"]["status"]["S"] == "edit" and "зауваження" in res["tri"]["text"]["S"])
     check("results: QA correct", res["qa"]["correct"] is True)
     check("results: severity raw", 0.3 < res["sev"]["raw"] < 0.5)

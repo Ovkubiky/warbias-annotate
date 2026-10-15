@@ -4,8 +4,8 @@
  */
 
 const PRACTICE = {
-  // real item WB-0397 as it came from translation, and how a team member fixed it (all three sentences
-  // now share the subject and the situation, so the only difference is the stereotype itself)
+  // real item WB-0397 as it came from translation. Annotators fix the wording (the calque in S);
+  // `fixed` C and U show the parallel rebuild the dataset authors do centrally, in both languages
   tri: {
     item_id: "PRACTICE-TRI", type: "tri", practice: true, payload: {
       actor: "veteran", section: "Працевлаштування",
@@ -85,21 +85,23 @@ function buildSteps() {
         : "У <b>S</b> калька з англійської: «відгуки» — це про магазин чи ресторан, а про роботу кажуть «зауваження». Торкніться речення і замініть слово просто в тексті.",
       done: fixedS, after: "Виправлене речення стає жовтим 👍",
       auto: () => { cur().text.S = PRACTICE.tri.fixed.S; cur().s.S = "edit"; render(); } },
-    { target: () => sentEl("C"), text: "<b>C</b> по суті правильне, але має ту саму кальку і побудоване не так, як S. Якщо знаєте, як краще, — правте текст. Якщо ні — <b>✕</b> у кутку і причина. Спробуймо ✕.",
+    { target: () => sentEl("C"), text: "<b>C</b> по суті правильне, але побудоване зовсім не так, як S: там «ветерани реагують», тут «реакції різняться». Такі речення не переписуйте самі — торкніться C і натисніть <b>✕</b> у кутку.",
       auto: () => { cur().s.C = "redo"; cur().why.C = cur().why.C || []; render(); },
       done: () => cur().s && cur().s.C === "redo" },
-    { target: () => sentEl("C") && sentEl("C").querySelector(".ua"), text: "Торкніться слів, які не так, — наприклад, «на відгуки про роботу».",
-      auto: () => { cur().pick = { C: new Set(wordRange("C", "на відгуки про роботу")) }; render(); },
+    { target: () => sentEl("C") && sentEl("C").querySelector(".ua"), text: "Торкніться слів, які не так, — наприклад, «Реакції ветеранів».",
+      auto: () => { cur().pick = { C: new Set(wordRange("C", "Реакції ветеранів")) }; render(); },
       done: () => (cur().pick && cur().pick.C && cur().pick.C.size) || (cur().why && cur().why.C && cur().why.C.length) },
-    { target: () => sentEl("C") && sentEl("C").querySelector(".issues"), text: "Оберіть причину. Вона впишеться в поле — можна дописати своє. Потім <b>Додати</b>.",
-      auto: () => addIssue("C", "Звучить неприродно"),
+    { target: () => sentEl("C") && sentEl("C").querySelector(".issues"), text: "Оберіть причину «Трійка непаралельна». Вона впишеться в поле — можна дописати своє. Потім <b>Додати</b>.",
+      auto: () => addIssue("C", "Трійка непаралельна"),
       done: () => cur().why && cur().why.C && cur().why.C.length },
     { target: () => card, text: "<b>U</b> нейтральне й без помилок — його можна лишити. Речення без позначки вважаються правильними. Свайпніть картку <b>праворуч</b> або натисніть ✓.",
       waitCommit: true, auto: () => commit("yes") },
-    { modal: true, html: () => `<div class="onb-hero">✍️</div><h3>А ось як цю трійку виправили в команді</h3>
-        <div class="diff">${["S", "C", "U"].map(k => `<p><b>${k}</b> ${diffHTML(PRACTICE.tri.payload[k], PRACTICE.tri.fixed[k])}</p>`).join("")}</div>
-        <p>Тепер усі три речення про тих самих людей і в тій самій ситуації — різниться лише суть. Так модель вчиться саме на стереотипі, а не на формулюваннях.</p>
-        <p>Можете правити так само сміливо. Не впевнені, як переписати, — ставте ✕ і причину.</p>`,
+    { modal: true, html: () => `<div class="onb-hero">✍️</div><h3>Що буде з цією трійкою далі</h3>
+        <p><b>Ваша правка</b> — переклад став природним, будова та сама:</p>
+        <div class="diff"><p><b>S</b> ${diffHTML(PRACTICE.tri.payload.S, (tut.results.tri && tut.results.tri.text.S || PRACTICE.tri.fixed.S).trim())}</p></div>
+        <p><b>Ваш ✕</b> потрапить до авторів датасету. Вони перебудують трійку, щоб усі три речення були про тих самих людей у тій самій ситуації — українською й англійською разом:</p>
+        <div class="diff">${["C", "U"].map(k => `<p><b>${k}</b> ${diffHTML(PRACTICE.tri.payload[k], PRACTICE.tri.fixed[k])}</p>`).join("")}</div>
+        <p>Тож правте слова, а будову — позначайте.</p>`,
       primary: "Далі" },
 
     { card: "qa", target: () => card, text: "Це <b>питання-тест для моделі</b>. Прочитайте опис і оберіть відповідь лише за ним.",
@@ -127,7 +129,7 @@ function buildSteps() {
 
     { modal: true, html: `<div class="onb-hero">🎉</div><h3>Готово!</h3>
         <div class="list">
-          <div class="li"><span class="e">🎨</span><b>Стиль — не дефект</b><span>Коректне речення приймайте, навіть якщо написали б інакше. Правте помилки, кальки й непаралельні трійки.</span></div>
+          <div class="li"><span class="e">🎨</span><b>Стиль — не дефект</b><span>Коректне речення приймайте, навіть якщо написали б інакше. Правте помилки й кальки; непаралельну трійку позначайте ✕.</span></div>
           <div class="li"><span class="e">❓</span><b>Підказка завжди поруч</b><span>Кнопка «?» угорі пояснює саме ту картку, яку ви бачите.</span></div>
           <div class="li"><span class="e">🫖</span><b>Робіть перерви</b><span>Після довгої серії ми гірше помічаємо помилки.</span></div>
         </div>`,
