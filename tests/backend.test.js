@@ -247,3 +247,18 @@ test('planted check cards: generated, served, scored by sentence; gold candidate
   assert.strictEqual(g.applyGold(), 1);
   assert.strictEqual(g.rows_('items').find(r => r.item_id === items[0].item_id).gold, 'bad');
 });
+
+test('reviews carry the reviewer name next to the id; old rows get it on the next submit', () => {
+  const { tokens, call, g } = boot();
+  const c1 = call(tokens[0], 'next', { count: 1 }).cards[0];
+  call(tokens[0], 'submit', { reviews: [review(c1)] });
+  assert.strictEqual(g.rows_('reviews')[0].name, 'Анна');
+  // an older sheet without the column: drop it, forget it was added, submit again
+  const sh = g.ss_().getSheetByName('reviews');
+  sh.rows.forEach(r => { r.length = 17; });           // a sheet from before the column existed
+  g.PropertiesService.getScriptProperties().setProperty('RV_COLS', '17');
+  const c2 = call(tokens[1], 'next', { count: 1 }).cards[0];
+  call(tokens[1], 'submit', { reviews: [review(c2)] });
+  const rows = g.rows_('reviews');
+  assert.deepStrictEqual(rows.map(r => [r.annotator, r.name]), [['a01', 'Анна'], ['a02', 'Богдан']]);
+});

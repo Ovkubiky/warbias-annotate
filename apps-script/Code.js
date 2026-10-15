@@ -8,7 +8,7 @@ var TABS = {
   config: ['key', 'value', 'note'],
   annotators: ['id', 'name', 'token', 'link', 'active', 'created', 'onboarded', 'practice', 'admin'],
   items: ['item_id', 'type', 'gold', 'group', 'payload'],
-  reviews: ['review_id', 'ts', 'day', 'annotator', 'item_id', 'type', 'outcome', 'answer', 'raw', 'position', 'session', 'dwell_ms', 'result', 'undone', 'edits', 'flags', 'source']
+  reviews: ['review_id', 'ts', 'day', 'annotator', 'item_id', 'type', 'outcome', 'answer', 'raw', 'position', 'session', 'dwell_ms', 'result', 'undone', 'edits', 'flags', 'source', 'name']
 };
 
 var CONFIG_DEFAULTS = [
@@ -257,7 +257,7 @@ function round1Rows_(src, itemRows, people) {
   // volunteers: sheet number → annotator id (an existing person with the same name, or a new r1-NN row)
   var byName = {};
   people.forEach(function (p) { if (p.id && p.name) byName[key(p.name)] = String(p.id); });
-  var vol = {}, newPeople = [], matched = 0;
+  var vol = {}, volName = {}, newPeople = [], matched = 0;
   var vs = src.getSheetByName('волонтери');
   (vs ? vs.getDataRange().getValues().slice(1) : []).forEach(function (r) {
     var n = parseInt(r[0], 10); if (!n || !r[1]) return;
@@ -269,7 +269,7 @@ function round1Rows_(src, itemRows, people) {
       row[0] = id; row[1] = norm(r[1]); row[4] = false; row[5] = new Date();
       newPeople.push(row);
     }
-    vol[n] = id;
+    vol[n] = id; volName[n] = norm(r[1]);
   });
 
   var ST = { 'прийнято': 'ok', 'переробити повністю': 'redo', 'виправлено вручну': 'edit' };
@@ -280,7 +280,7 @@ function round1Rows_(src, itemRows, people) {
     var r = { review_id: 'r1:' + sheet + ':' + rowNo, item_id: id, type: type, outcome: outcome, answer: answer, result: result };
     var n = parseInt(sheet.replace(/\D+/g, ''), 10);
     rows.push([r.review_id, '', '', vol[n] || ('r1-' + ('0' + n).slice(-2)), id, type, outcome, answer === null ? '' : answer, '',
-      pos, 'round1:' + sheet, '', JSON.stringify(result), false].concat(readable_(result), ['round1']));
+      pos, 'round1:' + sheet, '', JSON.stringify(result), false].concat(readable_(result), ['round1', volName[n] || '']));
   };
 
   src.getSheets().forEach(function (ws) {
@@ -437,7 +437,7 @@ function submit_(me, req) {
     var rows = list.filter(function (r) { return r && r.review_id && !existing[r.review_id]; }).map(function (r) {
       return [r.review_id, now, day, me.id, r.item_id, r.type, r.outcome, r.answer === null || r.answer === undefined ? '' : r.answer,
         r.raw === null || r.raw === undefined ? '' : r.raw, r.position || '', r.session || '', r.dwell_ms || '',
-        JSON.stringify(r.result || {}), false].concat(readable_(r.result), ['']);
+        JSON.stringify(r.result || {}), false].concat(readable_(r.result), ['', me.name || '']);
     });
     if (rows.length) {
       ensureReviewCols_(sh);
@@ -498,7 +498,7 @@ function readable_(res) {
   if (res.comment && flags.join('\n').indexOf(res.comment) < 0) flags.push('💬 ' + res.comment);
   return [edits, flags.join('\n')];
 }
-/** Sheets made before `edits`/`flags` existed get the headers once, and their old rows filled in. */
+/** Sheets made before `edits`/`flags`/`name` existed get the headers once, and their old rows filled in. */
 function ensureReviewCols_(sh) {
   var props = PropertiesService.getScriptProperties();
   if (props.getProperty('RV_COLS') === String(TABS.reviews.length)) return;
@@ -506,7 +506,7 @@ function ensureReviewCols_(sh) {
   fillReadable_(sh);
   props.setProperty('RV_COLS', String(TABS.reviews.length));
 }
-/** Can be run from the editor: (re)fill `edits` and `flags` from the `result` JSON of every row. */
+/** Can be run from the editor: (re)fill `edits` and `flags` from the `result` JSON and `name` from annotators, for every row. */
 function fillReadable() {
   var sh = ss_().getSheetByName('reviews');
   ensureCols_(sh, TABS.reviews);
@@ -522,6 +522,12 @@ function fillReadable_(sh) {
     return readable_(res);
   });
   sh.getRange(2, TABS.reviews.indexOf('edits') + 1, n, 2).setValues(vals);
+  // reviewer names next to the ids (the id stays the key: names can be edited in annotators)
+  var names = {};
+  rows_('annotators').forEach(function (a) { if (a.id) names[String(a.id)] = a.name; });
+  var ids = sh.getRange(2, TABS.reviews.indexOf('annotator') + 1, n, 1).getValues();
+  var nameCol = sh.getRange(2, TABS.reviews.indexOf('name') + 1, n, 1), cur = nameCol.getValues();
+  nameCol.setValues(ids.map(function (r, i) { return [names[String(r[0])] || cur[i][0] || '']; }));
 }
 
 /** Add missing header columns to an existing sheet (older setups). Returns the header row. */
