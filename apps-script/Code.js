@@ -209,7 +209,8 @@ function writeTab_(name, head, rows) {
  * Whether round 1 counts towards the review targets is config.count_round1 (FALSE by default).
  */
 function importRound1() {
-  var c = config_(), ref = String(c.round1_sheet || '');
+  cDel_('cfg');                                   // the link was probably just pasted: read config fresh
+  var c = config_(), ref = String(c.round1_sheet || '').trim();
   if (!ref) {
     addConfig_([['round1_mode', 'vote', 'Раунд 1: vote — одностайне «прийнято» = 1 оцінка, позначки піднімають у черзі; full — усе зараховується; off — лише для дашборда'],
       ['round1_sheet', '', 'Посилання або ID таблиці першого раунду для importRound1()']]);
