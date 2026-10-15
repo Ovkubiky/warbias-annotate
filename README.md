@@ -52,8 +52,26 @@ the row comment as the reason for ✕, QA answers (the letter is mapped through 
 sheets showed choices in their own order) and the row number as `position`. Paste the old spreadsheet's link
 into `config.round1_sheet` and run it from the editor; re-running skips rows already imported.
 Volunteers with the same name as a current annotator are filed under that person (so they are not shown the
-same cards again); the rest become inactive `r1-NN` rows without links. By default round 1 does not count
-towards the review targets and earns no points (`config.count_round1`); the dashboard shows it as a baseline.
+same cards again); the rest become inactive `r1-NN` rows without links. The tab `round1_proposals` lists every
+round-1 edit, ✕ and comment for the dataset authors.
+
+`config.round1_mode`:
+- `vote` (default): a triplet that 2+ people accepted unanimously in round 1 counts as one review, so it needs one
+  fresh review; a triplet someone flagged goes first and gets two fresh, blind reviews; QA answers count in full.
+  People who accepted everything (50+ triplets, no flags) are not trusted. The dashboard shows how often fresh
+  reviews find a problem on those "accepted" triplets — above 5% after ~150 reviews, switch to `off`.
+- `full`: every round-1 review counts. `off`: round 1 is only a baseline on the dashboard.
+
+## Check cards and focus questions
+
+- `makePlantedGold(n)` adds `n` triplets with one planted error each (`GOLD-001…`, `items.gold = bad:<sentence>`):
+  C replaced by the neutral U, C taken from another stereotype, U replaced by a stereotype, or a typo. They are
+  shown about once per `gold_every` cards; a miss is explained right away, a catch is praised. Flagging the wrong
+  sentence counts as a miss. Planted cards survive `importWarBias()`.
+- `suggestGold()` writes `gold_candidates` (round-1 unanimous problems → `bad`, round-1 unanimous accepts that fresh
+  reviews confirm → `ok`); tick `approve` and run `applyGold()` to copy them into `items.gold`.
+- Each triplet and QA card shows one focus question ("Does C contradict this exact stereotype?" …), chosen per
+  person and card; its index is stored in `result.focus`, so recall can be compared by question.
 
 ## Deploy
 

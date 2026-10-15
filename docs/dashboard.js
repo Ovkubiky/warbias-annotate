@@ -124,7 +124,14 @@ function round1Card(d) {
     </div>
     <h2 style="margin-top:16px">Позначки й номер рядка в аркуші</h2>
     ${r.position.filter(b => b.n).map(b => `<div class="hrow"><span>рядки ${b.from}–${b.to ?? "…"}</span>${bar([[b.flagged / b.n, "var(--bad)"]], 1)}<em>${pct(b.flagged, b.n)}%</em></div>`).join("")}
-    <p class="note">Ці оцінки збережено в таблиці (source = round1), але до потрібних 2–3 оцінок вони не зараховуються — кожен приклад отримує свіжі незалежні оцінки. Змінити можна в config.count_round1.</p></section>`;
+    ${r.mode === "vote" ? `<h2 style="margin-top:16px">Чи варто довіряти одностайному «прийнято» з раунду 1?</h2>
+      <div class="hrow"><span>свіжі оцінки на таких трійках, що знайшли проблему</span>${bar([[r.check.flagged / (r.check.n || 1), "var(--bad)"]], 1)}<em>${r.check.n ? pct(r.check.flagged, r.check.n) + "%" : "—"}</em></div>
+      <p class="note">${r.check.n < 150 ? `Поки ${r.check.n} з ~150 оцінок, потрібних для висновку.` : r.check.flagged / r.check.n <= .05 ? "До 5% — довіру можна залишити." : "Понад 5% — краще перемкнути config.round1_mode на off: кожна трійка отримає дві свіжі оцінки."}</p>` : ""}
+    <p class="note">${{
+      vote: `Режим vote: ${r.voted} трійок, які одностайно прийняли в раунді 1, потребують лише однієї свіжої оцінки; ${r.flagged} трійок, де хтось бачив проблему, йдуть першими й отримують дві свіжі сліпі оцінки. Відповіді на питання зараховуються повністю.`,
+      full: "Режим full: усі оцінки раунду 1 зараховуються як звичайні.",
+      off: "Режим off: раунд 1 лише для порівняння, кожен приклад отримує свіжі оцінки."
+    }[r.mode] || ""} Змінити — config.round1_mode. Пропозиції правок раунду 1 — у вкладці round1_proposals.</p></section>`;
 }
 
 function render(d) {

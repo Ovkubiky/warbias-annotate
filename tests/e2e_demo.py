@@ -25,6 +25,8 @@ async def to_type(pg, t):
             await pg.wait_for_function("st.cur !== null || st.exhausted", timeout=5000)
         except Exception:
             return False
+        if await pg.locator(".scrim [data-close]").count():      # feedback after a hidden check card
+            await pg.click(".scrim [data-close]")
         if await pg.evaluate("st.cur && st.cur.type") == t:
             return True
         await pg.evaluate("enteredAt=-1e9; st.sinceBreak=0")
@@ -160,11 +162,44 @@ async def main():
         check("done screen when nothing left", await pg.locator(".state h2").count() == 1)
         await pg.screenshot(path="/tmp/wb_done.png") if False else None
 
+        # hidden check cards: a miss is explained, a catch is praised
+        await ev("localStorage.removeItem('wb-demo-reviews'); localStorage.removeItem('wb-pending'); localStorage.removeItem('wb-mode')")
+        await pg.goto(PAGE); await pg.wait_for_function("st.cur !== null", timeout=5000)
+        async def to_gold():
+            for _ in range(80):
+                if await pg.locator(".scrim [data-close]").count():
+                    await pg.click(".scrim [data-close]")
+                await pg.wait_for_function("st.cur !== null || st.exhausted", timeout=5000)
+                if await ev("!!(st.cur && st.cur.chk)"):
+                    return True
+                if await ev("!st.cur"):
+                    return False
+                # answer whatever this is and move on
+                await ev("""(() => { enteredAt = -1e9; st.sinceBreak = 0; const c = st.cur;
+                    if (c.type === 'qa') c.answer = 0; if (c.type === 'sev') c.raw = .5; render(); enteredAt = -1e9; act('yes'); })()""")
+                await pg.wait_for_timeout(400)
+            return False
+        check("focus prompt shown on a card", await pg.locator(".focus").count() == 1 or await ev("st.cur.type") == "sev")
+        found = await to_gold()
+        check("a hidden check card comes up", found)
+        if found:
+            await ev("enteredAt=-1e9"); await pg.click("#yesBtn"); await pg.wait_for_timeout(700)
+            check("missed planted error is explained", "контрольна картка" in (await pg.inner_text(".scrim")) if await pg.locator(".scrim").count() else False)
+            await pg.click(".scrim [data-close]")
+            if await to_gold():
+                k = await ev("st.cur.chk.k")
+                await pg.click(f'[data-k="{k}"] .ua'); await pg.click(f'[data-k="{k}"] .c-bad')
+                await pg.select_option(f'[data-k="{k}"] .reason', index=1); await pg.click(f'[data-k="{k}"] .add')
+                await ev("enteredAt=-1e9"); await pg.click("#yesBtn"); await pg.wait_for_timeout(500)
+                check("caught planted error is praised", "🎯" in await pg.inner_text(".toast"))
+            rv = await ev("JSON.parse(localStorage.getItem('wb-demo-reviews')).filter(r => r.item_id.startsWith('GOLD-'))")
+            check("check-card reviews are saved", len(rv) >= 1 and all("focus" in r["result"] for r in rv))
+
         # progress dashboard (demo data)
         await pg.goto(PAGE.replace("index.html", "dashboard.html"))
         await pg.wait_for_selector(".kpi")
         check("dashboard renders all sections", await pg.locator("section.card").count() >= 10)
-        check("dashboard shows my flag reason", "Звучить неприродно" in await pg.inner_text("main"))
+        check("dashboard shows the reasons section", "Причини позначок" in await pg.inner_text("main"))
 
         print(f"passed {ok}, failed {len(bad)}: {bad}\nerrors: {errs}")
         await b.close()

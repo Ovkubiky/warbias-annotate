@@ -31,6 +31,13 @@ function DemoApi() {
   const KEY = "wb-demo-reviews";
   const me = { id: "demo", name: "Демо" };
   const items = (window.WB_SAMPLE || []).map(it => ({ ...it }));
+  // a few hidden check cards with planted errors, built the same way as makePlantedGold() on the server
+  const tris = items.filter(it => it.type === "tri");
+  tris.slice(0, 4).forEach((t, i) => {
+    const g = plantGold(t.payload, tris[(i + 5) % tris.length].payload, PLANT_KINDS[i % PLANT_KINDS.length], hash32(t.item_id));
+    const chk = btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify({ k: g.key, msg: g.msg }))));
+    items.push({ item_id: "GOLD-00" + (i + 1), type: "tri", gold: "bad:" + g.key, payload: { ...g.payload, chk } });
+  });
   // a few made-up teammates so the third-opinion and leaderboard logic has something to show
   const others = [
     { id: "d1", name: "Волонтер 03" }, { id: "d2", name: "Волонтер 11" }, { id: "d3", name: "Волонтер 05" }

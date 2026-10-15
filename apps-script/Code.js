@@ -22,7 +22,7 @@ var CONFIG_DEFAULTS = [
   ['break_every', 25, 'Після скількох карток поспіль пропонувати перерву'],
   ['lease_minutes', 20, 'Скільки хвилин картка зарезервована за людиною, якій її видали'],
   ['hf_base', 'https://huggingface.co/datasets/FairForget/WarBias/resolve/main/', 'Звідки importWarBias() бере дані'],
-  ['count_round1', false, 'TRUE — оцінки раунду 1 (importRound1) зараховуються до потрібної кількості оцінок'],
+  ['round1_mode', 'vote', 'Раунд 1: vote — одностайне «прийнято» = 1 оцінка, позначки піднімають у черзі; full — усе зараховується; off — лише для дашборда'],
   ['round1_sheet', '', 'Посилання або ID таблиці першого раунду для importRound1()']
 ];
 
@@ -92,7 +92,10 @@ function importWarBias() {
 
   var sh = ss_().getSheetByName('items');
   var keep = {};
-  rows_('items').forEach(function (r) { if (r.gold) keep[r.item_id] = r.gold; });
+  rows_('items').forEach(function (r) {
+    if (r.gold) keep[r.item_id] = r.gold;
+    if (String(r.item_id).indexOf('GOLD-') === 0) rows.push([r.item_id, r.type, r.gold, r.group, r.payload]);   // planted check cards
+  });
   rows.forEach(function (r) { if (keep[r[0]]) r[2] = keep[r[0]]; });
   if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, TABS.items.length).clearContent();
   sh.getRange(2, 1, rows.length, TABS.items.length).setValues(rows);
@@ -115,6 +118,86 @@ function makeLinks() {
   cDel_('ann');
 }
 
+/* ---------- hidden check cards ---------- */
+
+/**
+ * Add n triplets with one planted error each (items GOLD-001…, gold = 'bad:<sentence>'). They are shown
+ * about once per config.gold_every cards; whoever misses the error is told right away what it was.
+ * Triplets that round 1 accepted unanimously are used first, so the only problem is the planted one.
+ */
+function makePlantedGold(n) {
+  n = n || 40;
+  var items = rows_('items'), reviews = reviewIndex_(), stats = itemStats(reviews, opts_(config_()));
+  var tri = items.filter(function (r) { return r.type === 'tri' && !r.gold && String(r.item_id).indexOf('GOLD-') !== 0; })
+    .map(function (r) { return { id: String(r.item_id), group: r.group, p: parseJson_(r.payload) }; });
+  tri.sort(function (a, b) {
+    return ((stats[b.id] && stats[b.id].r1vote) ? 1 : 0) - ((stats[a.id] && stats[a.id].r1vote) ? 1 : 0) || hash32(a.id) - hash32(b.id);
+  });
+  var have = items.filter(function (r) { return String(r.item_id).indexOf('GOLD-') === 0; }).length, rows = [];
+  for (var i = 0; i < n && i < tri.length; i++) {
+    var t = tri[i], kind = PLANT_KINDS[(have + i) % PLANT_KINDS.length];
+    var donors = tri.filter(function (d) { return d.p.actor === t.p.actor && d.group !== t.group; });
+    var donor = donors.length ? donors[hash32(t.id) % donors.length].p : tri[(i + 7) % tri.length].p;
+    var g = plantGold(t.p, donor, kind, hash32(t.id + kind));
+    g.payload.chk = Utilities.base64Encode(JSON.stringify({ k: g.key, msg: g.msg }), Utilities.Charset.UTF_8);
+    rows.push(['GOLD-' + ('00' + (have + i + 1)).slice(-3), 'tri', 'bad:' + g.key, 'gold:' + t.id, JSON.stringify(g.payload)]);
+  }
+  var sh = ss_().getSheetByName('items');
+  if (rows.length) sh.getRange(sh.getLastRow() + 1, 1, rows.length, TABS.items.length).setValues(rows);
+  PropertiesService.getScriptProperties().setProperty('ITEMS_VER', String(Date.now()));
+  cDel_('board'); cDel_('dash');
+  Logger.log('Додано контрольних карток: ' + rows.length);
+  return rows.length;
+}
+
+/**
+ * List triplets that could become real check items, in the tab gold_candidates:
+ * 'bad' — everyone in round 1 flagged it; 'ok' — round 1 accepted it unanimously and the fresh reviews agree.
+ * Look through them, set approve = TRUE on the ones you agree with, then run applyGold().
+ */
+function suggestGold() {
+  var items = rows_('items'), reviews = reviewIndex_(), by = {};
+  reviews.forEach(function (r) { if (!r.undone) (by[r.item_id] = by[r.item_id] || []).push(r); });
+  var out = [];
+  items.forEach(function (it) {
+    if (it.type !== 'tri' || it.gold) return;
+    var rs = by[it.item_id] || [], r1 = rs.filter(function (r) { return r.src === 'r1'; }), fresh = rs.filter(function (r) { return r.src !== 'r1'; });
+    var p = parseJson_(it.payload), row = null;
+    if (r1.length >= 2 && r1.every(function (r) { return r.outcome === 'no'; }))
+      row = ['bad', 'раунд 1: усі ' + r1.length + ' позначили проблему' + (fresh.length ? '; свіжих «так»: ' + fresh.filter(function (r) { return r.outcome === 'yes'; }).length : '')];
+    else if (r1.length >= 2 && r1.every(function (r) { return r.outcome === 'yes'; }) && fresh.length >= 1 && fresh.every(function (r) { return r.outcome === 'yes'; }))
+      row = ['ok', 'раунд 1: ' + r1.length + ' × «так»; свіжих «так»: ' + fresh.length];
+    if (row) out.push([it.item_id, row[0], row[1], p.S, p.C, p.U, false]);
+  });
+  writeTab_('gold_candidates', ['item_id', 'suggest', 'why', 'S', 'C', 'U', 'approve'], out);
+  Logger.log('Кандидатів у контрольні: ' + out.length + ' (bad: ' + out.filter(function (r) { return r[1] === 'bad'; }).length + ')');
+  return out.length;
+}
+
+/** Copy approved rows of gold_candidates into items.gold. */
+function applyGold() {
+  var cand = rows_('gold_candidates').filter(function (r) { return r.approve === true || String(r.approve).toUpperCase() === 'TRUE'; });
+  var want = {};
+  cand.forEach(function (r) { want[String(r.item_id)] = r.suggest; });
+  var sh = ss_().getSheetByName('items'), ids = sh.getRange(2, 1, Math.max(1, sh.getLastRow() - 1), 1).getValues();
+  var col = sh.getRange(2, 3, ids.length, 1), gold = col.getValues(), n = 0;
+  ids.forEach(function (r, i) { if (want[String(r[0])]) { gold[i][0] = want[String(r[0])]; n++; } });
+  col.setValues(gold);
+  PropertiesService.getScriptProperties().setProperty('ITEMS_VER', String(Date.now()));
+  cDel_('board'); cDel_('dash');
+  Logger.log('Позначено контрольними: ' + n);
+  return n;
+}
+
+/** Replace a tab's contents (created if missing). */
+function writeTab_(name, head, rows) {
+  var ss = ss_(), sh = ss.getSheetByName(name) || ss.insertSheet(name);
+  if (sh.getLastRow()) sh.getRange(1, 1, sh.getLastRow(), Math.max(head.length, sh.getLastColumn())).clearContent();
+  sh.getRange(1, 1, 1, head.length).setValues([head]).setFontWeight('bold');
+  sh.setFrozenRows(1);
+  if (rows.length) sh.getRange(2, 1, rows.length, head.length).setValues(rows);
+}
+
 /* ---------- round 1 (the Google Sheets annotation) ---------- */
 
 /**
@@ -128,7 +211,7 @@ function makeLinks() {
 function importRound1() {
   var c = config_(), ref = String(c.round1_sheet || '');
   if (!ref) {
-    addConfig_([['count_round1', false, 'TRUE — оцінки раунду 1 зараховуються до потрібної кількості оцінок'],
+    addConfig_([['round1_mode', 'vote', 'Раунд 1: vote — одностайне «прийнято» = 1 оцінка, позначки піднімають у черзі; full — усе зараховується; off — лише для дашборда'],
       ['round1_sheet', '', 'Посилання або ID таблиці першого раунду для importRound1()']]);
     throw new Error('Вставте посилання на таблицю першого раунду в config.round1_sheet і запустіть ще раз');
   }
@@ -145,7 +228,8 @@ function importRound1() {
     ensureCols_(ann, TABS.annotators);
     ann.getRange(ann.getLastRow() + 1, 1, res.newPeople.length, TABS.annotators.length).setValues(res.newPeople);
   }
-  ['rv', 'ann', 'board', 'dash'].forEach(cDel_);
+  writeTab_('round1_proposals', ['item_id', 'annotator', 'sentence', 'original', 'proposed', 'comment'], res.proposals);
+  ['rv2', 'ann', 'board', 'dash'].forEach(cDel_);
   var msg = 'Раунд 1: додано ' + fresh.length + ' оцінок (уже були: ' + (res.rows.length - fresh.length) + '), ' +
     'людей: ' + res.people + ' (з них знайдено серед поточних: ' + res.matched + '). ' +
     'Пропущено: ' + res.missing.length + ' прикладів, яких немає в поточному датасеті' +
@@ -189,7 +273,7 @@ function round1Rows_(src, itemRows, people) {
 
   var ST = { 'прийнято': 'ok', 'переробити повністю': 'redo', 'виправлено вручну': 'edit' };
   var status = function (v) { return ST[key(v)] || ''; };
-  var rows = [], missing = {}, unparsed = 0;
+  var rows = [], missing = {}, unparsed = 0, proposals = [];
   var push = function (sheet, rowNo, pos, id, type, outcome, answer, result) {
     result.source = 'round1';
     var r = { review_id: 'r1:' + sheet + ':' + rowNo, item_id: id, type: type, outcome: outcome, answer: answer, result: result };
@@ -228,6 +312,11 @@ function round1Rows_(src, itemRows, people) {
         if (comment || notes.length) res.comment = [comment].concat(notes).filter(String).join(' | ');
         var bad = ['S', 'C', 'U'].some(function (k) { return st[k] === 'redo' || st[k] === 'edit'; });
         push(name, i + 1, pos, id, 'tri', bad ? 'no' : 'yes', null, res);
+        var who = rows[rows.length - 1][3];
+        ['S', 'C', 'U'].forEach(function (k) {
+          if (text[k] || st[k] === 'redo') proposals.push([id, who, k, p[k], text[k] || '', res.comment || '']);
+        });
+        if (!Object.keys(text).length && !Object.keys(why).length && res.comment) proposals.push([id, who, '', '', '', res.comment]);
       } else {
         var s = status(r[3]);
         if (!s && !norm(r[2])) { pos--; continue; }
@@ -253,7 +342,7 @@ function round1Rows_(src, itemRows, people) {
     }
   });
   return { rows: rows, newPeople: newPeople, people: Object.keys(vol).length, matched: matched,
-    missing: Object.keys(missing), unparsed: unparsed };
+    missing: Object.keys(missing), unparsed: unparsed, proposals: proposals };
 }
 
 /** Word-level similarity 0..1 (2·LCS / total words), to tell an edited sentence from a remark. */
@@ -534,7 +623,8 @@ function opts_(c) {
     minReviews: { tri: +c.min_reviews_tri || 2, qa: +c.min_reviews_qa || 2, sev: +c.min_reviews_sev || 2 },
     maxReviews: +c.max_reviews || 3, goldEvery: +c.gold_every || 10,
     leaseMinutes: +c.lease_minutes || 20, batch: 3,
-    countRound1: c.count_round1 === true || String(c.count_round1).toUpperCase() === 'TRUE'
+    round1Mode: ['vote', 'full', 'off'].indexOf(String(c.round1_mode || '').toLowerCase()) >= 0 ? String(c.round1_mode).toLowerCase()
+      : (String(c.count_round1).toUpperCase() === 'TRUE' ? 'full' : 'vote')
   };
 }
 
@@ -579,25 +669,27 @@ function compactReview_(r) {
   return [String(r[ix('review_id')]), String(r[ix('item_id')]), String(r[ix('annotator')]), String(r[ix('outcome')]),
     r[ix('answer')] === '' || r[ix('answer')] === null ? '' : r[ix('answer')],
     day instanceof Date ? Utilities.formatDate(day, TZ, 'yyyy-MM-dd') : String(day),
-    (r[ix('undone')] === true || r[ix('undone')] === 'TRUE') ? 1 : 0, r[ix('source')] === 'round1' ? 1 : 0];
+    (r[ix('undone')] === true || r[ix('undone')] === 'TRUE') ? 1 : 0, r[ix('source')] === 'round1' ? 1 : 0,
+    String(r[ix('type')]), flaggedKeys({ result: parseJson_(r[ix('result')]) })];
 }
+function parseJson_(t) { try { return JSON.parse(t || '{}'); } catch (e) { return {}; } }
 function reviewRows_() {
-  var c = cGet_('rv');
+  var c = cGet_('rv2');
   if (c) return c;
   var sh = ss_().getSheetByName('reviews'), n = sh.getLastRow() - 1;
   c = n < 1 ? [] : sh.getRange(2, 1, n, TABS.reviews.length).getValues().filter(function (r) { return r[0] !== ''; }).map(compactReview_);
-  cPut_('rv', c, TTL_LONG);
+  cPut_('rv2', c, TTL_LONG);
   return c;
 }
 function updateReviewCache_(fn) {          // callers hold the script lock
-  var c = cGet_('rv');
+  var c = cGet_('rv2');
   if (!c) return;                          // nothing cached: next read rebuilds from the sheet
   fn(c);
-  cPut_('rv', c, TTL_LONG);
+  cPut_('rv2', c, TTL_LONG);
 }
 function reviewIndex_() {
   return reviewRows_().map(function (r) {
-    return { review_id: r[0], item_id: r[1], annotator: r[2], outcome: r[3], answer: r[4], day: r[5], undone: r[6] === 1, src: r[7] ? 'r1' : '' };
+    return { review_id: r[0], item_id: r[1], annotator: r[2], outcome: r[3], answer: r[4], day: r[5], undone: r[6] === 1, src: r[7] ? 'r1' : '', type: r[8], fk: r[9] === undefined ? '' : r[9] };
   });
 }
 

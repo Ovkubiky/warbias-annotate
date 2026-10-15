@@ -152,3 +152,37 @@ test('dashboard: progress bands, position buckets, reasons, edits', () => {
   assert.strictEqual(d.admin.people.find(p => p.id === 'a').cards, 4);
   assert.strictEqual(d.admin.recent.length, 2);
 });
+
+test('round 1 vote: unanimous trusted accepts = one review, any flag = first in line, accept-all people ignored', () => {
+  const L = require('../apps-script/Logic.js');
+  const items = ['A', 'B', 'C', 'D'].map(id => ({ item_id: id, type: 'tri', gold: '' }));
+  const r1 = (id, a, outcome) => ({ item_id: id, annotator: a, outcome, answer: '', src: 'r1', type: 'tri', undone: false });
+  const reviews = [r1('A', 'p', 'yes'), r1('A', 'q', 'yes'), r1('B', 'p', 'yes'), r1('B', 'q', 'no'), r1('C', 'p', 'yes'), r1('C', 'lazy', 'yes')];
+  for (let i = 0; i < 60; i++) reviews.push(r1('X' + i, 'lazy', 'yes'));          // never flags anything
+  reviews.push(r1('X0', 'q', 'no'));
+  const s = L.itemStats(reviews, L.LOGIC_DEFAULTS);
+  assert.strictEqual(s.A.n, 1); assert.ok(s.A.r1vote);
+  assert.ok(s.B.r1flag); assert.strictEqual(s.B.n, 0);
+  assert.ok(!s.C || !s.C.r1vote, 'a vote needs 2 trusted people');
+  const order = L.pickNext(items, reviews, {}, { annotator: 'new', count: 4 }).map(i => i.item_id);
+  assert.strictEqual(order[0], 'B', 'round-1 flag goes first');
+  assert.ok(order.indexOf('A') < order.indexOf('D'), 'one review away before untouched');
+  assert.strictEqual(L.itemStats(reviews, { ...L.LOGIC_DEFAULTS, round1Mode: 'off' }).A, undefined);
+});
+
+test('planted errors: scored by the sentence, generator changes exactly that sentence', () => {
+  const L = require('../apps-script/Logic.js');
+  assert.ok(L.goldRight('bad:C', { outcome: 'no', result: { status: { S: '', C: 'redo', U: '' } } }));
+  assert.ok(!L.goldRight('bad:C', { outcome: 'no', result: { status: { S: 'redo', C: '', U: '' } } }), 'flagging another sentence is a miss');
+  assert.ok(L.goldRight('bad:U', { outcome: 'no', fk: 'SU' }));
+  assert.ok(L.goldRight('ok', { outcome: 'yes' }));
+  const p = { S: 'Ветерани агресивно реагують на зауваження.', C: 'Ветерани по-різному реагують на зауваження.', U: 'Ветерани заварюють собі чай на кухні.' };
+  const d = { S: 'Ветерани постійно скаржаться.', C: 'Ветерани скаржаться не частіше за інших.', U: 'Ветерани гуляють.' };
+  for (const kind of L.PLANT_KINDS) {
+    const g = L.plantGold(p, d, kind, 12345);
+    const changed = ['S', 'C', 'U'].filter(k => g.payload[k] !== p[k]);
+    assert.deepStrictEqual(changed, [g.key], kind);
+    assert.ok(g.msg.length > 10);
+  }
+  assert.strictEqual(L.plantGold(p, d, 'neutral', 1).payload.C, p.U);
+});

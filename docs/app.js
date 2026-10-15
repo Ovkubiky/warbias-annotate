@@ -50,8 +50,19 @@ const outcome = c => c && c.s && Object.values(c.s).some(v => v === "redo" || v 
 const stage = $("#stage");
 let card, enteredAt = 0;
 
+// one concrete thing to look at on each card: asking a specific question finds more problems than "anything wrong?"
+const FOCUS = {
+  tri: ["Чи C заперечує саме цей стереотип, а не щось поруч?", "Чи U справді нейтральне — без натяку на стереотип?",
+    "Чи всі три речення звучать природно українською?", "Чи S звучить як справжнє поширене упередження?",
+    "Чи всі три речення про ту саму групу людей?", "Чи немає описок і граматичних помилок?"],
+  qa: ["Чи відповідь однозначно випливає з опису?", "Чи не підходить сюди ще якась відповідь?", "Чи природно звучить опис?"]
+};
+const focusOf = c => FOCUS[c.type] ? hash32(c.id + "|" + ((st.me && st.me.id) || "")) % FOCUS[c.type].length : null;
+/** Hidden check cards carry their planted error (base64 JSON) so feedback works offline. */
+function decodeChk(s) { try { return s ? JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(s), ch => ch.charCodeAt(0)))) : null; } catch (_) { return null; } }
+
 function toCur(raw) {
-  const p = raw.payload, base = { id: raw.item_id, type: raw.type, item: p, shownAt: 0 };
+  const p = raw.payload, base = { id: raw.item_id, type: raw.type, item: p, shownAt: 0, chk: decodeChk(p.chk) };
   if (raw.type === "tri") return { ...base, s: { S: "", C: "", U: "" }, text: { S: p.S, C: p.C, U: p.U }, orig: { S: p.S, C: p.C, U: p.U }, why: {} };
   if (raw.type === "qa") return { ...base, s: { X: "" }, text: { X: p.ctx }, orig: { X: p.ctx }, why: {}, answer: null };
   return { ...base, raw: null };
@@ -232,13 +243,13 @@ function render() {
   let html = '<div class="stamp yes">ПРИЙНЯТО</div><div class="stamp no">ПРОБЛЕМА</div>';
   if (type === "tri") {
     html += `<div class="eyebrow"><span class="kind">Трійка</span><span>${ACTOR[item.actor] || ""}</span>${enBtn}</div>
-    <div class="body"><div class="def">${esc(item.section)}${st.showEn && item.def_en ? `<div class="def-en">${esc(item.def_en)}</div>` : ""}</div>
+    <div class="body">${focusHTML()}<div class="def">${esc(item.section)}${st.showEn && item.def_en ? `<div class="def-en">${esc(item.def_en)}</div>` : ""}</div>
       ${sentHTML("S", "S", item.S, item.eS)}${sentHTML("C", "C", item.C, item.eC)}${sentHTML("U", "U", item.U, item.eU)}
       <div class="legend"><span><i style="background:var(--ok)"></i>правильне</span><span><i style="background:var(--edit)"></i>виправлене</span><span><i style="background:var(--bad)"></i>переробити</span></div></div>`;
   } else if (type === "qa") {
     const en = item.en || {};
     html += `<div class="eyebrow"><span class="kind">Питання</span><span>${ACTOR[item.actor] || ""}</span>${enBtn}</div>
-    <div class="body">${sentHTML("X", "¶", item.ctx, en.ctx)}<div class="q">${esc(item.q)}${st.showEn && en.q ? `<div class="q-en">${esc(en.q)}</div>` : ""}</div>
+    <div class="body">${focusHTML()}${sentHTML("X", "¶", item.ctx, en.ctx)}<div class="q">${esc(item.q)}${st.showEn && en.q ? `<div class="q-en">${esc(en.q)}</div>` : ""}</div>
       ${item.ch.map((c, i) => `<button class="choice" data-choice="${i}" aria-pressed="${st.cur.answer === i}"><b>${"ABC"[i]}</b><span>${esc(c)}${st.showEn && en.ch && en.ch[i] ? `<br><span class="q-en">${esc(en.ch[i])}</span>` : ""}</span></button>`).join("")}</div>`;
   } else {
     html += `<div class="eyebrow"><span class="kind">Небезпечність</span><span>${ACTOR[item.actor] || ""}</span></div>
@@ -258,6 +269,10 @@ function render() {
   }
   card.innerHTML = html; stage.appendChild(card);
   wireCard(); enteredAt = performance.now(); updateActions();
+}
+function focusHTML() {
+  const i = st.cur.practice ? null : focusOf(st.cur);
+  return i === null ? "" : `<div class="focus"><span aria-hidden="true">🔎</span>${esc(FOCUS[st.cur.type][i])}</div>`;
 }
 function renderBreak() {
   card.classList.add("break");
@@ -445,7 +460,8 @@ function reviewOf(c) {
     outcome: c.type === "sev" ? "yes" : res,
     answer: c.type === "qa" ? c.answer : null,
     raw: c.type === "sev" ? Math.round(c.raw * 1000) / 1000 : null,
-    position: ++st.position, session: st.session, dwell_ms: Date.now() - c.shownAt, result
+    position: ++st.position, session: st.session, dwell_ms: Date.now() - c.shownAt,
+    result: focusOf(c) === null ? result : { ...result, focus: focusOf(c) }
   };
 }
 function commit(dir) {
@@ -461,7 +477,18 @@ function commit(dir) {
   st.done++; st.sinceBreak++; updCount();
   rotEvent(rv.outcome);
   st.cur = null;
+  if (c.chk) setTimeout(() => checkFeedback(c), 260);
   setTimeout(advance, 240);
+}
+/** Right after a hidden check card: praise a catch, explain a miss. */
+function checkFeedback(c) {
+  const k = c.chk.k, caught = c.s && (c.s[k] === "redo" || (c.s[k] === "edit" && c.text[k].trim() !== String(c.orig[k]).trim()));
+  if (caught) return toast("🎯 Це була контрольна картка — і ви знайшли навмисну помилку!");
+  sheet(`<h3>Це була контрольна картка</h3>
+    <p>У ній була навмисна помилка — ${esc(c.chk.msg)}</p>
+    <p style="background:var(--bad-bg);border-radius:12px;padding:10px 12px;margin:0"><b style="color:var(--bad)">${esc(k)}</b>&nbsp; ${esc(c.item[k])}</p>
+    <p>Нічого страшного: такі картки трапляються зрідка і допомагають тримати фокус. На рейтинг впливає лише точність, а не швидкість.</p>
+    <button class="btn" data-close>Зрозуміло</button>`);
 }
 function openWhole() {
   sheet(`<h3>Увесь приклад не годиться?</h3><p>Щоб позначити окреме речення чи слова, закрийте це вікно, торкніться тексту й натисніть ✕ у кутку. Тут — якщо зламаний увесь приклад.</p>

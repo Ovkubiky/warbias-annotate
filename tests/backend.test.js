@@ -90,7 +90,7 @@ test('cache stays consistent with the sheet through submit and undo', () => {
   const last = g.rows_('reviews').slice(-1)[0];
   call(last.annotator === 'a01' ? tokens[0] : last.annotator === 'a02' ? tokens[1] : tokens[2], 'undo', { review_id: last.review_id });
   const cached = g.reviewIndex_();
-  g.cache_().remove('rv');                     // force a rebuild from the sheet
+  g.cache_().remove('rv2');                     // force a rebuild from the sheet
   const fresh = g.reviewIndex_();
   // compare as JSON: objects created inside the vm context have a different prototype chain
   assert.strictEqual(JSON.stringify(cached), JSON.stringify(fresh));
@@ -142,7 +142,7 @@ test('rows saved before the readable columns existed are filled on the first new
   const old = ['old-1', new Date(), '2026-10-14', 'a01', 'WB-0354', 'tri', 'no', '', '', 10, 's', 1,
     JSON.stringify({ status: { C: 'edit' }, text: { C: 'Стара правка.' } }), false];
   sh.getRange(2, 1, 1, old.length).setValues([old]);
-  g.cache_().remove('rv');
+  g.cache_().remove('rv2');
   const card = call(tokens[1], 'next', { count: 1 }).cards[0];
   call(tokens[1], 'submit', { reviews: [review(card)] });
   assert.strictEqual(g.rows_('reviews')[0].edits, 'C: Стара правка.');
@@ -206,4 +206,44 @@ test('round 1 import: statuses, edits, remarks, QA letters by choice text; not c
   const seenByA = call(tokens[0], 'next', { mode: 'tri', count: 5 }).cards.map(c => c.item_id);
   assert.ok(!seenByA.includes(tri.item_id));
   assert.ok(!call(tokens[0], 'board').board.some(p => p.id.startsWith('r1-')));
+});
+
+test('planted check cards: generated, served, scored by sentence; gold candidates from round 1', () => {
+  const { tokens, call, g } = boot(['Анна', 'Богдан']);
+  assert.strictEqual(g.makePlantedGold(8), 8);
+  const golds = g.rows_('items').filter(r => String(r.item_id).startsWith('GOLD-'));
+  assert.strictEqual(golds.length, 8);
+  assert.ok(golds.every(r => /^bad:[SCU]$/.test(r.gold) && JSON.parse(r.payload).chk));
+  const chk = JSON.parse(Buffer.from(JSON.parse(golds[0].payload).chk, 'base64').toString('utf8'));
+  assert.strictEqual('bad:' + chk.k, golds[0].gold);
+  // planted cards survive a re-import of the dataset
+  g.importWarBias();
+  assert.strictEqual(g.rows_('items').filter(r => String(r.item_id).startsWith('GOLD-')).length, 8);
+  // someone works through enough cards to be shown check cards
+  let goldSeen = [];
+  for (let k = 0; k < 12 && goldSeen.length < 2; k++) {
+    const r = call(tokens[0], 'next', { mode: 'tri', count: 3 });
+    const golds = r.cards.filter(c => c.item_id.startsWith('GOLD-'));
+    goldSeen = goldSeen.concat(golds);
+    call(tokens[0], 'submit', { reviews: r.cards.map(c => {
+      if (!c.item_id.startsWith('GOLD-')) return review(c);
+      const key = JSON.parse(Buffer.from(c.payload.chk, 'base64').toString('utf8')).k;
+      const hit = goldSeen.length === 1;                       // catch the first, miss the second
+      return review(c, 'no', { result: { status: { S: '', C: '', U: '', [hit ? key : (key === 'S' ? 'U' : 'S')]: 'redo' } } });
+    }) });
+  }
+  assert.ok(goldSeen.length >= 2, 'check cards are served');
+  const me = call(tokens[0], 'board').board.find(p => p.id === 'a01');
+  assert.strictEqual(me.accuracy, 0.5, 'flagging the wrong sentence is a miss');
+  // candidates: unanimous round-1 problem → bad
+  const items = g.rows_('items').filter(r => r.type === 'tri' && !r.gold);
+  const sh = g.ss_().getSheetByName('reviews');
+  const r1 = (id, a, outcome, n) => [`r1:x:${n}`, '', '', a, id, 'tri', outcome, '', '', n, 'round1:x', '', '{}', false, '', '', 'round1'];
+  sh.getRange(sh.getLastRow() + 1, 1, 2, 17).setValues([r1(items[0].item_id, 'r1-01', 'no', 1), r1(items[0].item_id, 'r1-02', 'no', 2)]);
+  g.cache_().remove('rv2');
+  assert.strictEqual(g.suggestGold(), 1);
+  const cand = g.ss_().getSheetByName('gold_candidates');
+  cand.getRange(2, 7).setValue(true);
+  assert.strictEqual(g.applyGold(), 1);
+  assert.strictEqual(g.rows_('items').find(r => r.item_id === items[0].item_id).gold, 'bad');
 });

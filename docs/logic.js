@@ -10,11 +10,34 @@ var LOGIC_DEFAULTS = {
   goldEvery: 10,                         // roughly one hidden check item per this many cards
   leaseMinutes: 20,                      // how long a handed-out card is reserved for one person
   batch: 3,                              // cards sent per request (client keeps a small queue)
-  countRound1: false                     // do imported round-1 reviews count towards the targets above?
+  // imported round-1 reviews (src 'r1'): 'vote' = a unanimous accept by 2+ trusted people counts as one
+  // review of a triplet, round-1 flags only move the triplet up the queue, QA answers count in full;
+  // 'full' = every round-1 review counts; 'off' = kept for the dashboard only. They always mark an item as seen.
+  round1Mode: 'vote'
 };
 
-/** Imported round-1 reviews (src 'r1') count only when opts.countRound1; they always mark an item as seen. */
-function counted(r, opts) { return !r.undone && (r.src !== 'r1' || !!(opts && opts.countRound1)); }
+/** Does this review count towards an item's targets? (Round-1 triplets in 'vote' mode are handled in itemStats.) */
+function counted(r, opts) {
+  if (r.undone) return false;
+  if (r.src !== 'r1') return true;
+  var mode = (opts && opts.round1Mode) || 'vote';
+  return mode === 'full' || (mode === 'vote' && r.type === 'qa');
+}
+
+/** Sentence keys a review marked as wrong or edited, e.g. 'C' or 'SU'. */
+function flaggedKeys(r) {
+  if (r.fk !== undefined && r.fk !== null) return String(r.fk);
+  var st = (r.result && r.result.status) || {};
+  return Object.keys(st).filter(function (k) { return st[k] === 'redo' || st[k] === 'edit'; }).sort().join('');
+}
+
+/** Was a hidden check item answered right? gold: 'ok' | 'bad' | 'bad:C' (a planted error in sentence C). */
+function goldRight(gold, r) {
+  var g = String(gold).split(':');
+  if (g[0] === 'ok') return r.outcome === 'yes';
+  if (g[1]) return flaggedKeys(r).indexOf(g[1]) >= 0;
+  return r.outcome === 'no';
+}
 
 function hash32(s) {
   var h = 2166136261;
@@ -24,16 +47,37 @@ function hash32(s) {
 
 /** Aggregate live (not undone) reviews per item. */
 function itemStats(reviews, opts) {
-  var m = {};
+  var m = {}, get = function (id) { return m[id] || (m[id] = { n: 0, neg: 0, by: {}, answers: {} }); };
   reviews.forEach(function (r) {
     if (!counted(r, opts)) return;
-    var s = m[r.item_id] || (m[r.item_id] = { n: 0, neg: 0, by: {}, answers: {} });
+    var s = get(r.item_id);
     s.n++;
     if (r.outcome === 'no') s.neg++;
     s.by[r.annotator] = true;
     if (r.answer !== '' && r.answer !== null && r.answer !== undefined) s.answers[String(r.answer)] = true;
   });
+  if (((opts && opts.round1Mode) || 'vote') === 'vote') round1Votes(reviews, get);
   return m;
+}
+
+/**
+ * Round-1 triplets in 'vote' mode. Someone who accepted everything (50+ triplets, no flags) is not trusted.
+ * 2+ trusted, unanimous accepts → one virtual 'yes' review; any round-1 flag → r1flag (asked first, no vote).
+ */
+function round1Votes(reviews, get) {
+  var per = {}, items = {};
+  reviews.forEach(function (r) {
+    if (r.src !== 'r1' || r.undone || r.type !== 'tri') return;
+    var p = per[r.annotator] || (per[r.annotator] = { n: 0, flags: 0 });
+    p.n++; if (r.outcome === 'no') p.flags++;
+    (items[r.item_id] = items[r.item_id] || []).push(r);
+  });
+  var trusted = function (a) { return !(per[a].n >= 50 && per[a].flags === 0); };
+  Object.keys(items).forEach(function (id) {
+    var rs = items[id];
+    if (rs.some(function (r) { return r.outcome === 'no'; })) { get(id).r1flag = true; return; }
+    if (rs.filter(function (r) { return trusted(r.annotator); }).length >= 2) { var s = get(id); s.n++; s.r1vote = true; }
+  });
 }
 
 /** How many reviews this item should end up with, given what it has so far. */
@@ -72,8 +116,9 @@ function pickNext(items, reviews, leases, o, opts) {
     var leased = (leases[it.item_id] || []).filter(function (l) { return l.exp > now && l.a !== o.annotator; }).length;
     if (n + leased >= target) return;
     var min = opts.minReviews[it.type] || 2;
-    // 0: disputed item waiting for its tie-breaker, 1: one review away from done, 2: untouched
-    var prio = n >= min ? 0 : (n === min - 1 ? 1 : 2);
+    // 0: disputed item waiting for its tie-breaker, 1: someone in round 1 saw a problem,
+    // 2: one review away from done, 3: untouched
+    var prio = n >= min ? 0 : (s && s.r1flag ? 1 : (n === min - 1 ? 2 : 3));
     pool.push({ it: it, prio: prio, r: hash32(o.annotator + '|' + it.item_id) });
   });
   // personal random order inside each priority band: no two people walk the data in the same order
@@ -129,7 +174,7 @@ function leaderboard(items, reviews, annotators) {
     var p = by[r.annotator]; if (!p || r.undone || r.src === 'r1') return;   // round 1 earns no points
     if (gold[r.item_id]) {
       p.goldSeen++;
-      if ((gold[r.item_id] === 'ok') === (r.outcome === 'yes')) p.goldRight++;
+      if (goldRight(gold[r.item_id], r)) p.goldRight++;
     } else p.cards++;
     if (r.day) p.days[r.day] = true;
   });
@@ -234,16 +279,16 @@ function qualityStats(live, typeOf, gold) {
  * Everything the progress dashboard shows, from the same inputs as the rest of the logic.
  * reviews also carry: type, raw, position, dwell_ms, day, ts (ms), src ('r1' = imported round 1),
  * result ({status, text, why}). people: [{id, name, onboarded}]. Per-person details are under `admin`.
- * Round-1 reviews are summarised separately under `round1` unless opts.countRound1.
+ * Quality numbers use this round's reviews only; round 1 is summarised under `round1`.
  */
 function dashboardStats(items, reviews, people, opts) {
   opts = opts || LOGIC_DEFAULTS;
   var typeOf = {}, gold = {};
   items.forEach(function (it) { typeOf[it.item_id] = it.type; if (it.gold) gold[it.item_id] = it.gold; });
   reviews.forEach(function (r) { r.type = r.type || typeOf[r.item_id]; });
-  var live = reviews.filter(function (r) { return counted(r, opts); });
+  var live = reviews.filter(function (r) { return !r.undone && r.src !== 'r1'; });
   var r1 = reviews.filter(function (r) { return !r.undone && r.src === 'r1'; });
-  var stats = itemStats(live, opts);
+  var stats = itemStats(reviews, opts);
 
   var types = {};
   items.forEach(function (it) {
@@ -296,18 +341,65 @@ function dashboardStats(items, reviews, people, opts) {
 
   var out = {
     totals: { reviews: q.reviews, edits: q.edits, flags: q.flags,
-      people: persons.filter(function (p) { return p.cards; }).length, team: teamProgress(items, live, opts) },
+      people: persons.filter(function (p) { return p.cards; }).length, team: teamProgress(items, reviews, opts) },
     types: types,
     daily: Object.keys(daily).sort().map(function (k) { return daily[k]; }),
     alpha: q.alpha, position: q.position, reasons: q.reasons, sevHist: sevHist,
     admin: { people: persons, recent: recent, sevSplits: q.sevSplits }
   };
-  if (r1.length && !opts.countRound1) {
+  if (r1.length) {
     var q1 = qualityStats(r1, typeOf, gold);
-    out.round1 = { reviews: q1.reviews, edits: q1.edits, flags: q1.flags, alpha: q1.alpha, position: q1.position, reasons: q1.reasons,
-      items: Object.keys(r1.reduce(function (m, r) { m[r.item_id] = 1; return m; }, {})).length };
+    // is a round-1 unanimous accept worth one vote? fresh reviews on those triplets should rarely find a problem
+    var onVoted = live.filter(function (r) { return r.type === 'tri' && stats[r.item_id] && stats[r.item_id].r1vote; });
+    out.round1 = { mode: opts.round1Mode || 'vote', reviews: q1.reviews, edits: q1.edits, flags: q1.flags, alpha: q1.alpha,
+      position: q1.position, reasons: q1.reasons,
+      items: Object.keys(r1.reduce(function (m, r) { m[r.item_id] = 1; return m; }, {})).length,
+      voted: Object.keys(stats).filter(function (k) { return stats[k].r1vote; }).length,
+      flagged: Object.keys(stats).filter(function (k) { return stats[k].r1flag; }).length,
+      check: { n: onVoted.length, flagged: onVoted.filter(function (r) { return r.outcome === 'no'; }).length } };
   }
   return out;
 }
 
-if (typeof module !== 'undefined') module.exports = { LOGIC_DEFAULTS: LOGIC_DEFAULTS, hash32: hash32, itemStats: itemStats, targetReviews: targetReviews, pickNext: pickNext, remainingFor: remainingFor, teamProgress: teamProgress, leaderboard: leaderboard, streak: streak, krippAlpha: krippAlpha, dashboardStats: dashboardStats, counted: counted };
+/**
+ * A triplet with one planted error, for hidden check cards. kind:
+ *  'neutral'  C is replaced by the triplet's own neutral U — C no longer contradicts S;
+ *  'other_c'  C is the counter-sentence of another stereotype;
+ *  'stereo_u' U is replaced by another stereotype about the same group;
+ *  'typo'     two letters swapped inside a long word.
+ * Returns {payload, key, msg}; the hint travels with the card (lightly encoded) so feedback works offline.
+ */
+var PLANT_KINDS = ['neutral', 'other_c', 'stereo_u', 'typo'];
+function plantGold(p, donor, kind, seed) {
+  var q = {};
+  Object.keys(p).forEach(function (k) { q[k] = p[k]; });
+  var key, msg;
+  if (kind === 'neutral') {
+    key = 'C'; q.C = p.U; q.eC = p.eU || '';
+    msg = 'C тут — нейтральний факт, а не заперечення стереотипу. Такий C треба позначати ✕.';
+  } else if (kind === 'other_c') {
+    key = 'C'; q.C = donor.C; q.eC = donor.eC || '';
+    msg = 'C заперечує інший стереотип, а не той, що в S.';
+  } else if (kind === 'stereo_u') {
+    key = 'U'; q.U = donor.S; q.eU = donor.eS || '';
+    msg = 'U тут — стереотип, а не нейтральне речення.';
+  } else {
+    var keys = ['S', 'C', 'U'];
+    for (var t = 0; t < 3 && !msg; t++) {
+      key = keys[(seed + t) % 3];
+      var words = String(p[key]).split(' '), long = [];
+      words.forEach(function (w, i) { if (/^[А-Яа-яІіЇїЄєҐґ'’]{7,}$/.test(w)) long.push(i); });
+      if (!long.length) continue;
+      var wi = long[seed % long.length], w = words[wi], j = 2 + seed % (w.length - 4);
+      if (w[j] === w[j + 1]) j = (j + 1) % (w.length - 3) + 1;
+      var bad = w.slice(0, j) + w[j + 1] + w[j] + w.slice(j + 2);
+      if (bad === w) continue;
+      words[wi] = bad; q[key] = words.join(' ');
+      msg = 'У ' + key + ' навмисна описка: «' + bad + '» замість «' + w + '».';
+    }
+    if (!msg) return plantGold(p, donor, 'neutral', seed);
+  }
+  return { payload: q, key: key, msg: msg };
+}
+
+if (typeof module !== 'undefined') module.exports = { LOGIC_DEFAULTS: LOGIC_DEFAULTS, hash32: hash32, itemStats: itemStats, targetReviews: targetReviews, pickNext: pickNext, remainingFor: remainingFor, teamProgress: teamProgress, leaderboard: leaderboard, streak: streak, krippAlpha: krippAlpha, dashboardStats: dashboardStats, counted: counted, flaggedKeys: flaggedKeys, goldRight: goldRight, plantGold: plantGold, PLANT_KINDS: PLANT_KINDS };

@@ -101,7 +101,9 @@ function makeEnv(fixtureDir) {
     } },
     Utilities: {
       getUuid: () => 'uuid-' + (++uuid).toString(16).padStart(8, '0') + '-xxxx-xxxx',
-      formatDate: (d, tz, fmt) => new Date(d).toISOString().slice(0, 10)
+      formatDate: (d, tz, fmt) => new Date(d).toISOString().slice(0, 10),
+      base64Encode: (t) => Buffer.from(String(t), 'utf8').toString('base64'),
+      Charset: { UTF_8: 'UTF-8' }
     },
     ContentService: { createTextOutput: s => ({ text: s, setMimeType() { return this; } }), MimeType: { JSON: 'json' } },
     Logger: { log() {} }

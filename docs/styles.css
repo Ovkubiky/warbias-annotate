@@ -231,3 +231,5 @@ body{margin:0}
 .diff b{display:inline-block;min-width:18px;color:var(--muted)}
 .diff del{color:#b4533f;text-decoration:line-through;text-decoration-thickness:1.5px;opacity:.8}
 .diff ins{text-decoration:none;background:rgba(232,186,64,.32);border-radius:4px;padding:0 2px}
+
+.focus{display:flex;gap:6px;align-items:flex-start;font-size:13px;font-weight:600;color:var(--brand);background:color-mix(in srgb,var(--brand) 8%,transparent);border-radius:10px;padding:7px 10px;margin-bottom:8px;line-height:1.35}
