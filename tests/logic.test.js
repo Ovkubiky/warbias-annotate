@@ -186,3 +186,23 @@ test('planted errors: scored by the sentence, generator changes exactly that sen
   }
   assert.strictEqual(L.plantGold(p, d, 'neutral', 1).payload.C, p.U);
 });
+
+test('round 1 report: consensus, sentences, early vs late, confirmations, QA against the key', () => {
+  const L = require('../apps-script/Logic.js');
+  const items = [{ item_id: 'A', type: 'tri', actor: 'veteran', section: 'X' }, { item_id: 'B', type: 'tri', actor: 'idp', section: 'Y' }, { item_id: 'Q', type: 'qa' }];
+  const r = (id, a, outcome, pos, extra = {}) => ({ item_id: id, annotator: a, outcome, position: pos, src: 'r1', type: 'tri', answer: '', undone: false, ...extra });
+  const rv = [
+    r('A', 'p', 'no', 1, { result: { status: { C: 'redo' }, comment: 'C не заперечує S' } }), r('A', 'q', 'no', 1, { result: { status: { C: 'redo' } } }),
+    r('B', 'p', 'yes', 2), r('B', 'q', 'yes', 2),
+    { item_id: 'Q', annotator: 'p', outcome: 'yes', answer: 2, type: 'qa', src: 'r1' }, { item_id: 'Q', annotator: 'q', outcome: 'yes', answer: 1, type: 'qa', src: 'r1' }
+  ];
+  const rep = L.round1Report(rv, items, { Q: 2 });
+  assert.deepStrictEqual(rep.consensus, { accept: 1, split: 0, problem: 1, single: 0 });
+  assert.strictEqual(rep.sentences.C.redo, 2);
+  assert.strictEqual(rep.themes.find(t => t.theme === 'C не заперечує S').n, 1);
+  assert.strictEqual(rep.qa.accuracy, 0.5); assert.strictEqual(rep.qa.agree, 0);
+  const p = rep.people.find(x => x.id === 'p');
+  assert.strictEqual(p.confirmed, 1); assert.strictEqual(p.others, 1);
+  assert.strictEqual(p.early, 1); assert.strictEqual(p.late, 0);
+  assert.strictEqual(rep.byActor.find(g => g.name === 'veteran').flagged, 2);
+});

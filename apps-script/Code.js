@@ -576,7 +576,12 @@ function dashboard_(me) {
     var people = people_().filter(function (a) { return a.id; }).map(function (a) {
       return { id: String(a.id), name: a.name, onboarded: !!a.onboarded, active: a.active !== false && a.active !== 'FALSE' };
     });
-    d = dashboardStats(itemIndex_().list, reviews, people, opts_(config_()));
+    var meta = {};
+    rows_('items').forEach(function (r) { var p = parseJson_(r.payload); meta[String(r.item_id)] = { actor: p.actor || '', section: p.section || '' }; });
+    var items = itemIndex_().list.map(function (it) { var m = meta[it.item_id] || {}; return { item_id: it.item_id, type: it.type, gold: it.gold, actor: m.actor, section: m.section }; });
+    var opts = opts_(config_());
+    opts.qaKey = qaKey_();
+    d = dashboardStats(items, reviews, people, opts);
     d.generated = new Date().toISOString();
     cPut_('dash', d, 120);
   }
@@ -585,6 +590,21 @@ function dashboard_(me) {
   if (!admin) delete out.admin;
   out.ok = true; out.isAdmin = admin; out.me = me.id;
   return out;
+}
+
+/** Correct QA answers from the dataset (choice index), cached for 6 hours. Not stored in the items tab. */
+function qaKey_() {
+  var k = cGet_('qakey');
+  if (k) return k;
+  k = {};
+  try {
+    UrlFetchApp.fetch(config_().hf_base + 'data/eval_uk/unassigned.jsonl').getContentText().split('\n').forEach(function (l) {
+      if (!l.trim()) return;
+      var q = JSON.parse(l); k[q.id] = q.answer_index;
+    });
+    cPut_('qakey', k, TTL_LONG);
+  } catch (e) { Logger.log('qaKey: ' + e); }
+  return k;
 }
 
 /* ---------- sheet helpers ---------- */
