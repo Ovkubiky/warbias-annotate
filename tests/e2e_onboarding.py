@@ -74,7 +74,7 @@ async def full_walk(b):
     check("practice triplet not saved as a review", await pg.evaluate("!localStorage.getItem('wb-demo-reviews')"))
     await pg.wait_for_selector(".onb-modal .diff")
     check("colleague's fix shown as a diff", await pg.locator(".onb-modal .diff p").count() == 3
-          and "на зауваження про свою роботу." in await pg.inner_text(".onb-modal .diff"))
+          and await pg.inner_text(".onb-modal .diff p:first-child ins") == "зауваження")   # the person's own edit
     await shot(pg, "05b-colleague")
     await pg.tap(".onb-modal [data-pri]"); await wait_step(pg, 8)
 
