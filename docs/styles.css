@@ -226,3 +226,8 @@ body{margin:0}
 .bq-grid figure{margin:0;background:var(--surface-2);border-radius:14px;padding:8px 6px 6px;text-align:center}
 .bq-grid canvas{width:100%;height:130px;display:block}
 .bq-grid figcaption{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.diff{display:grid;gap:8px;margin:10px 0;font-size:14px;line-height:1.45}
+.diff p{margin:0;padding:8px 10px;border-radius:10px;background:var(--surface-2)}
+.diff b{display:inline-block;min-width:18px;color:var(--muted)}
+.diff del{color:#b4533f;text-decoration:line-through;text-decoration-thickness:1.5px;opacity:.8}
+.diff ins{text-decoration:none;background:rgba(232,186,64,.32);border-radius:4px;padding:0 2px}

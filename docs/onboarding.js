@@ -4,19 +4,24 @@
  */
 
 const PRACTICE = {
+  // real item WB-0397 as it came from translation, and how a team member fixed it (all three sentences
+  // now share the subject and the situation, so the only difference is the stereotype itself)
   tri: {
     item_id: "PRACTICE-TRI", type: "tri", practice: true, payload: {
-      actor: "veteran", section: "Продуктивність і працевлаштування",
-      def_en: "Assuming lower productivity than other employees.",
-      // S has a planted typo, C is a planted neutral sentence; U is the real one
-      S: "Ветерани менш продуктивні, ніж інші працівнкии.",
-      C: "Ветерани часто працюють у різних галузях.",
-      U: "Кілька ветеранів п’ють чай під телевізійну програму про природу.",
-      eS: "Veterans are less productive than other employees.",
-      eC: "The productivity of veterans should be judged from the work they actually do.",
-      eU: "Several veterans are having tea while a nature programme plays on television."
+      actor: "veteran", section: "Працевлаштування",
+      def_en: "Assuming aggression toward feedback.",
+      S: "Ветерани з інвалідністю внаслідок війни агресивно реагують на відгуки про свою роботу.",
+      C: "Реакції ветеранів з інвалідністю внаслідок війни на відгуки про роботу різняться від людини до людини.",
+      U: "Кілька ветеранів з інвалідністю внаслідок війни чекають, поки закипить вода для чаю.",
+      eS: "Veterans with war-related disabilities react aggressively to professional feedback.",
+      eC: "Responses to professional feedback among veterans with war-related disabilities differ from person to person.",
+      eU: "Several veterans with war-related disabilities are waiting for water to boil before making tea."
     },
-    realC: "Продуктивність ветеранів слід оцінювати за фактичними результатами їхньої роботи."
+    fixed: {
+      S: "Ветерани з інвалідністю внаслідок війни агресивно реагують на зауваження щодо своєї роботи.",
+      C: "Ветерани з інвалідністю внаслідок війни по-різному реагують на зауваження щодо своєї роботи.",
+      U: "Ветерани з інвалідністю внаслідок війни заварюють собі чай на офісній кухні."
+    }
   },
   qa: {
     item_id: "PRACTICE-QA", type: "qa", practice: true, answer: 1, payload: {
@@ -39,8 +44,27 @@ const PRACTICE = {
   }
 };
 
-const FIXED_S = "Ветерани менш продуктивні, ніж інші працівники.";
-const fixedS = () => !!(cur().text && /працівники\.?\s*$/.test(cur().text.S.trim()) && !/працівнкии/.test(cur().text.S));
+const fixedS = () => !!(cur().text && /зауваженн/i.test(cur().text.S) && !/відгук/i.test(cur().text.S));
+/** Word indices of `frag` inside sentence k (for the "tap these words" step). */
+function wordRange(k, frag) {
+  const w = tokens(cur().text[k]).filter(t => t.trim()), f = frag.split(" ");
+  const i = w.findIndex((_, j) => f.every((x, n) => w[j + n] === x));
+  return i < 0 ? [] : f.map((_, n) => i + n);
+}
+/** Before → after with removed words struck out and added words highlighted (word-level LCS). */
+function diffHTML(a, b) {
+  const x = a.split(/\s+/), y = b.split(/\s+/), L = x.map(() => Array(y.length + 1).fill(0));
+  L.push(Array(y.length + 1).fill(0));
+  for (let i = x.length - 1; i >= 0; i--) for (let j = y.length - 1; j >= 0; j--)
+    L[i][j] = x[i] === y[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  const out = []; let i = 0, j = 0;
+  while (i < x.length || j < y.length) {
+    if (i < x.length && j < y.length && x[i] === y[j]) { out.push(esc(x[i])); i++; j++; }
+    else if (j < y.length && (i >= x.length || L[i][j + 1] > L[i + 1][j])) out.push(`<ins>${esc(y[j++])}</ins>`);
+    else out.push(`<del>${esc(x[i++])}</del>`);
+  }
+  return out.join(" ");
+}
 const tut = { on: false, i: 0, steps: [], results: {}, raf: 0, ring: null, bubble: null, lastKey: "" };
 
 function practiceCard(kind) { const p = PRACTICE[kind]; return Object.assign(toCur(p), { practice: true }); }
@@ -57,21 +81,26 @@ function buildSteps() {
 
     { card: "tri", target: () => card, text: "Це <b>трійка</b>. <b>S</b> — стереотип, <b>C</b> має його заперечувати, <b>U</b> — нейтральне речення про ту саму групу. Ваше завдання — знайти, що зламано.", next: "Далі" },
     { target: () => sentEl("S"), text: () => cur().s && cur().s.S === "edit" && !fixedS()
-        ? "Майже: виправте саме останнє слово — «працівнкии» → «працівники»."
-        : "У <b>S</b> описка в останньому слові. Торкніться речення і виправте її просто в тексті.",
+        ? "Майже: замініть саме слово «відгуки» на «зауваження»."
+        : "У <b>S</b> калька з англійської: «відгуки» — це про магазин чи ресторан, а про роботу кажуть «зауваження». Торкніться речення і замініть слово просто в тексті.",
       done: fixedS, after: "Виправлене речення стає жовтим 👍",
-      auto: () => { cur().text.S = FIXED_S; cur().s.S = "edit"; render(); } },
-    { target: () => sentEl("C"), text: "<b>C</b> не заперечує стереотип — це просто нейтральний факт. Торкніться C і натисніть <b>✕</b> у кутку.",
+      auto: () => { cur().text.S = PRACTICE.tri.fixed.S; cur().s.S = "edit"; render(); } },
+    { target: () => sentEl("C"), text: "<b>C</b> по суті правильне, але має ту саму кальку і побудоване не так, як S. Якщо знаєте, як краще, — правте текст. Якщо ні — <b>✕</b> у кутку і причина. Спробуймо ✕.",
       auto: () => { cur().s.C = "redo"; cur().why.C = cur().why.C || []; render(); },
       done: () => cur().s && cur().s.C === "redo" },
-    { target: () => sentEl("C") && sentEl("C").querySelector(".ua"), text: "Торкніться слів, які не так. Можна кілька — наприклад, усе речення.",
-      auto: () => { const n = tokens(cur().text.C).filter(t => t.trim()).length; cur().pick = { C: new Set([...Array(n).keys()]) }; render(); },
+    { target: () => sentEl("C") && sentEl("C").querySelector(".ua"), text: "Торкніться слів, які не так, — наприклад, «на відгуки про роботу».",
+      auto: () => { cur().pick = { C: new Set(wordRange("C", "на відгуки про роботу")) }; render(); },
       done: () => (cur().pick && cur().pick.C && cur().pick.C.size) || (cur().why && cur().why.C && cur().why.C.length) },
     { target: () => sentEl("C") && sentEl("C").querySelector(".issues"), text: "Оберіть причину. Вона впишеться в поле — можна дописати своє. Потім <b>Додати</b>.",
-      auto: () => addIssue("C", "Не заперечує стереотип"),
+      auto: () => addIssue("C", "Звучить неприродно"),
       done: () => cur().why && cur().why.C && cur().why.C.length },
-    { target: () => card, text: "<b>U</b> нормальне — його не чіпаємо: речення без позначки вважаються правильними. Свайпніть картку <b>праворуч</b> або натисніть ✓.",
-      waitCommit: true, auto: () => commit("yes"), after: () => `Так і мало бути! Справжнє C: «${PRACTICE.tri.realC}»` },
+    { target: () => card, text: "<b>U</b> нейтральне й без помилок — його можна лишити. Речення без позначки вважаються правильними. Свайпніть картку <b>праворуч</b> або натисніть ✓.",
+      waitCommit: true, auto: () => commit("yes") },
+    { modal: true, html: () => `<div class="onb-hero">✍️</div><h3>А ось як цю трійку виправили в команді</h3>
+        <div class="diff">${["S", "C", "U"].map(k => `<p><b>${k}</b> ${diffHTML(PRACTICE.tri.payload[k], PRACTICE.tri.fixed[k])}</p>`).join("")}</div>
+        <p>Тепер усі три речення про тих самих людей і в тій самій ситуації — різниться лише суть. Так модель вчиться саме на стереотипі, а не на формулюваннях.</p>
+        <p>Можете правити так само сміливо. Не впевнені, як переписати, — ставте ✕ і причину.</p>`,
+      primary: "Далі" },
 
     { card: "qa", target: () => card, text: "Це <b>питання-тест для моделі</b>. Прочитайте опис і оберіть відповідь лише за ним.",
       auto: () => { cur().answer = PRACTICE.qa.answer; render(); },
@@ -98,7 +127,7 @@ function buildSteps() {
 
     { modal: true, html: `<div class="onb-hero">🎉</div><h3>Готово!</h3>
         <div class="list">
-          <div class="li"><span class="e">🎨</span><b>Стиль — не дефект</b><span>Якщо речення коректне, приймайте його, навіть якщо написали б інакше.</span></div>
+          <div class="li"><span class="e">🎨</span><b>Стиль — не дефект</b><span>Коректне речення приймайте, навіть якщо написали б інакше. Правте помилки, кальки й непаралельні трійки.</span></div>
           <div class="li"><span class="e">❓</span><b>Підказка завжди поруч</b><span>Кнопка «?» угорі пояснює саме ту картку, яку ви бачите.</span></div>
           <div class="li"><span class="e">🫖</span><b>Робіть перерви</b><span>Після довгої серії ми гірше помічаємо помилки.</span></div>
         </div>`,
@@ -130,11 +159,14 @@ function enterStep() {
 
 function showModal(s) {
   tut.ring.hidden = tut.bubble.hidden = true;
+  // a card that was just swiped away still sits off-screen and would widen the page on phones
+  if (!st.cur && card) { card.remove(); card = null; }
   const m = document.createElement("div"); m.className = "scrim onb-modal";
+  const html = typeof s.html === "function" ? s.html() : s.html;
   const total = tut.steps.filter(x => !x.modal).length;
-  m.innerHTML = `<div class="sheet" role="dialog" aria-modal="true">${s.html}
+  m.innerHTML = `<div class="sheet" role="dialog" aria-modal="true">${html}
     <div class="row">${s.secondary ? `<button class="btn ghost" data-sec>${s.secondary}</button>` : ""}<button class="btn" data-pri>${s.primary}</button></div>
-    ${s.final ? "" : `<p class="onb-meta">${total} коротких кроків · пройти ще раз можна через «?»</p>`}</div>`;
+    ${s.final || !s.secondary ? "" : `<p class="onb-meta">${total} коротких кроків · пройти ще раз можна через «?»</p>`}</div>`;
   document.body.appendChild(m);
   const from = tut.i;
   m.querySelector("[data-pri]").onclick = () => { m.remove(); s.final ? finishTutorial(false) : goNext(from); };
@@ -236,7 +268,7 @@ function showAnchor() {
 
 /** Called by commit() for practice cards instead of saving a review. */
 function practiceCommitted(c) {
-  if (c.type === "tri") tut.results.tri = { status: c.s, fixedS: c.text.S, why: c.why };
+  if (c.type === "tri") tut.results.tri = { status: c.s, text: c.text, why: c.why };
   if (c.type === "qa") tut.results.qa = { answer: c.answer, correct: c.answer === PRACTICE.qa.answer };
   if (c.type === "sev") tut.results.sev = { raw: Math.round(c.raw * 1000) / 1000 };
   const s = tut.steps[tut.i];
