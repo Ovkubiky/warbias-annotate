@@ -116,9 +116,9 @@ function pickNext(items, reviews, leases, o, opts) {
     var leased = (leases[it.item_id] || []).filter(function (l) { return l.exp > now && l.a !== o.annotator; }).length;
     if (n + leased >= target) return;
     var min = opts.minReviews[it.type] || 2;
-    // 0: disputed item waiting for its tie-breaker, 1: someone in round 1 saw a problem,
-    // 2: one review away from done, 3: untouched
-    var prio = n >= min ? 0 : (s && s.r1flag ? 1 : (n === min - 1 ? 2 : 3));
+    // 0: disputed item waiting for its tie-breaker; 1: one review away from done, or someone in round 1 saw a
+    // problem — mixed in one band, so items get finished while flagged ones are not left waiting; 2: untouched
+    var prio = n >= min ? 0 : ((s && s.r1flag) || n === min - 1 ? 1 : 2);
     pool.push({ it: it, prio: prio, r: hash32(o.annotator + '|' + it.item_id) });
   });
   // personal random order inside each priority band: no two people walk the data in the same order

@@ -165,8 +165,11 @@ test('round 1 vote: unanimous trusted accepts = one review, any flag = first in 
   assert.ok(s.B.r1flag); assert.strictEqual(s.B.n, 0);
   assert.ok(!s.C || !s.C.r1vote, 'a vote needs 2 trusted people');
   const order = L.pickNext(items, reviews, {}, { annotator: 'new', count: 4 }).map(i => i.item_id);
-  assert.strictEqual(order[0], 'B', 'round-1 flag goes first');
+  assert.ok(order.indexOf('B') < order.indexOf('D'), 'round-1 flag before untouched');
   assert.ok(order.indexOf('A') < order.indexOf('D'), 'one review away before untouched');
+  // flagged and one-away triplets share a band: across people, both kinds come first
+  const firsts = new Set(['u1', 'u2', 'u3', 'u4', 'u5', 'u6', 'u7', 'u8'].map(a => L.pickNext(items, reviews, {}, { annotator: a, count: 1 })[0].item_id));
+  assert.ok(firsts.has('A') && firsts.has('B'), 'mixed: ' + [...firsts]);
   assert.strictEqual(L.itemStats(reviews, { ...L.LOGIC_DEFAULTS, round1Mode: 'off' }).A, undefined);
 });
 
