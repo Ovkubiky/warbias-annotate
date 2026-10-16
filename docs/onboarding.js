@@ -115,15 +115,16 @@ function buildSteps() {
     { target: () => card, text: "Приклад якісний — свайп <b>праворуч</b>. Ліворуч — лише коли питання зламане: підходить кілька відповідей або жодна.",
       waitCommit: true, auto: () => commit("yes") },
 
-    { card: "sev", target: () => card && card.querySelector(".sev-foot"), text: "Тепер <b>небезпечність</b> стереотипу. Що станеться з людиною, якщо в це повірять? Потягніть смайлик по шкалі.",
+    { card: "sev", place: "below", target: () => card && card.querySelector(".sev-foot"), text: "Тепер <b>небезпечність</b> стереотипу. Що станеться з людиною, якщо в це повірять? Потягніть смайлик по шкалі.",
       auto: () => { cur().raw = PRACTICE.sev.anchor; render(); },
       done: () => cur().raw !== null && cur().raw !== undefined && !cur().sliding },
-    { target: () => card && card.querySelector(".sev-foot"), onEnter: showAnchor,
+    { place: "below", target: () => card && card.querySelector(".sev-foot"), onEnter: showAnchor,
       text: () => `${cur().raw >= .6 ? "Згодні!" : "Ми б поставили правіше."} Звинувачення в колаборації можуть виправдати переслідування — це один із найнебезпечніших стереотипів. Побутове (оренда, звички) — ліворуч. Позначка показує орієнтир.`,
       next: "Далі" },
     { target: () => $("#yesBtn"), text: "Збережіть — свайп праворуч або ✓. Ліворуч тут немає: шкала сама показує вашу думку.", waitCommit: true, auto: () => commit("yes") },
 
-    { target: () => $("#undoBtn"), text: "<b>↩</b> повертає останню картку, якщо передумали.", next: "Далі" },
+    { target: () => $("#undoBtn"), text: "<b>↩</b> повертає останню картку, якщо передумали. Спробуйте — натисніть.", next: "Далі", tryUndo: true,
+      onEnter: () => { $("#undoBtn").disabled = false; } },
     { target: () => $("#rot"), text: "Кожна картка вирощує квітку: 🌻 — прийнята, синя волошка — знайдена проблема. Кожні 10 карток складаються в букет 💐 — тапніть його, щоб побачити свою колекцію. Сховати панель — 🧠 угорі.", next: "Далі" },
     { target: () => $("#trophyBtn"), text: "Серед карток є приховані контрольні. Рейтинг рахує <b>точність, а не швидкість</b>; квиток у розіграш — за кожні 50 карток при точності від 80%.", next: "Далі" },
 
@@ -195,7 +196,7 @@ function tick() {
   const s = tut.steps[tut.i];
   if (s && !s.modal) {
     const t = s.target && s.target();
-    if (t && t.isConnected) placeCoach(t.getBoundingClientRect());
+    if (t && t.isConnected) placeCoach(t.getBoundingClientRect(), s.place);
     // dynamic text (e.g. right / wrong answer) refreshes in place
     const text = typeof s.text === "function" ? s.text() : s.text;
     if (text + (s.next && (!s.nextWhen || s.nextWhen())) !== tut.lastKey) drawBubble(s);
@@ -245,20 +246,30 @@ function goNext(from) {
   tut.raf = requestAnimationFrame(tick);
 }
 
-function placeCoach(r) {
+function placeCoach(r, place) {
   const pad = 6, ring = tut.ring, b = tut.bubble;
   ring.hidden = false;
   Object.assign(ring.style, { left: r.left - pad + "px", top: r.top - pad + "px", width: r.width + pad * 2 + "px", height: r.height + pad * 2 + "px" });
-  const bw = Math.min(320, innerWidth - 24), bh = b.offsetHeight || 120;
+  // a swiped-away card can make the page wider than the screen on phones; trust the screen width then
+  const vw = Math.min(innerWidth, screen.width || innerWidth);
+  const bw = Math.min(320, vw - 24), bh = b.offsetHeight || 120;
+  b.style.width = bw + "px";
+  // wide screens: put the bubble beside the app column, so it never covers the card's text
+  const col = (document.querySelector(".app") || document.body).getBoundingClientRect();
+  const sideRight = vw - col.right >= bw + 28, sideLeft = col.left >= bw + 28;
+  if (sideRight || sideLeft) {
+    b.style.left = (sideRight ? col.right + 16 : col.left - bw - 16) + "px";
+    b.style.top = Math.max(8, Math.min(innerHeight - bh - 8, r.top + Math.min(r.height, 160) / 2 - bh / 2)) + "px";
+    return;
+  }
   const below = r.bottom + 14, above = r.top - bh - 14;
-  let top = (r.top + r.height / 2 < innerHeight / 2) ? below : above;
+  let top = place === "below" ? below : (r.top + r.height / 2 < innerHeight / 2) ? below : above;
   if (top + bh > innerHeight - 8) top = Math.max(8, above);
   if (top < 8) top = Math.min(innerHeight - bh - 8, below);
   // a target taller than the screen: dock the bubble at the bottom instead of covering it
   if (r.height > innerHeight * .55) top = innerHeight - bh - 12;
-  b.style.width = bw + "px";
   b.style.top = Math.max(8, top) + "px";
-  b.style.left = Math.max(12, Math.min(innerWidth - bw - 12, r.left + r.width / 2 - bw / 2)) + "px";
+  b.style.left = Math.max(12, Math.min(vw - bw - 12, r.left + r.width / 2 - bw / 2)) + "px";
 }
 
 function showAnchor() {
@@ -270,6 +281,7 @@ function showAnchor() {
 
 /** Called by commit() for practice cards instead of saving a review. */
 function practiceCommitted(c) {
+  if (!st.cur && card) { card.remove(); card = null; }   // don't leave the swiped card hanging off-screen
   if (c.type === "tri") tut.results.tri = { status: c.s, text: c.text, why: c.why };
   if (c.type === "qa") tut.results.qa = { answer: c.answer, correct: c.answer === PRACTICE.qa.answer };
   if (c.type === "sev") tut.results.sev = { raw: Math.round(c.raw * 1000) / 1000 };

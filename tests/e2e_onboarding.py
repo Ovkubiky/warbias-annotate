@@ -178,10 +178,43 @@ async def skip_every_step(b):
     return errs
 
 
+async def laptop_walk(b):
+    """A short laptop screen: the bubble must not cover the stereotype text; ↩ can be tried in the walkthrough."""
+    ctx = await b.new_context(viewport={"width": 1366, "height": 680})
+    pg = await ctx.new_page()
+    errs = []
+    pg.on("pageerror", lambda e: errs.append(str(e)))
+    await pg.goto(PAGE)
+    await pg.click(".onb-modal [data-pri]")
+    async def advance_until(pred):
+        for _ in range(40):
+            if await pg.evaluate(pred):
+                return True
+            if await pg.locator(".onb-modal [data-pri]").count():
+                await pg.click(".onb-modal [data-pri]")
+            elif await pg.locator(".coach-next").count():
+                await pg.click(".coach-next")
+            else:
+                await pg.click(".coach-skip")
+            await pg.wait_for_timeout(450)
+        return False
+    await advance_until("tut.on && st.cur && st.cur.type === 'sev'")
+    await pg.wait_for_timeout(300)
+    overlap = await pg.evaluate("""(() => { const a = document.querySelector('.coach').getBoundingClientRect(), q = document.querySelector('.quote').getBoundingClientRect();
+        return !(a.right <= q.left || a.left >= q.right || a.bottom <= q.top || a.top >= q.bottom); })()""")
+    check("laptop: bubble does not cover the stereotype", not overlap)
+    await advance_until("tut.on && !!tut.steps[tut.i].tryUndo")
+    i = await pg.evaluate("tut.i")
+    await pg.click("#undoBtn"); await pg.wait_for_timeout(300)
+    check("↩ can be tried in the walkthrough", await pg.evaluate("tut.i") == i + 1 and "↩" in await pg.inner_text(".toast"))
+    await ctx.close()
+    return errs
+
+
 async def main():
     async with async_playwright() as p:
         b = await p.chromium.launch()
-        errs = await full_walk(b) + await skip_walk(b) + await skip_every_step(b)
+        errs = await full_walk(b) + await skip_walk(b) + await skip_every_step(b) + await laptop_walk(b)
         print(f"passed {ok}, failed {len(bad)}: {bad}\nerrors: {errs}")
         await b.close()
 

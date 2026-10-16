@@ -517,6 +517,11 @@ function openWhole() {
 $("#yesBtn").onclick = () => act("yes");
 $("#noBtn").onclick = () => act("no");
 $("#undoBtn").onclick = () => {
+  if (typeof tut !== "undefined" && tut.on) {            // onboarding: let people try the button
+    const s = tut.steps[tut.i];
+    if (s && s.tryUndo) { toast("Так і працює: ↩ повертає попередню картку"); goNext(tut.i); }
+    return;
+  }
   const h = st.history.pop(); if (!h) return;
   const i = pending.findIndex(p => p.review_id === h.review_id);
   if (i >= 0) pending.splice(i, 1); else pendingUndo.push(h.review_id);
