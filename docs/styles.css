@@ -233,3 +233,4 @@ body{margin:0}
 .focus{display:flex;gap:6px;align-items:baseline;font-size:12.5px;color:var(--muted);margin:-2px 0 8px;line-height:1.4}
 .focus b{color:var(--ink);font-weight:600}
 .sent.focus-k .k{color:var(--brand);background:color-mix(in srgb,var(--brand) 14%,transparent);border-radius:6px;padding:0 4px;margin-left:-4px}
+.sev-pre{font-size:12.5px;color:var(--muted);text-align:center;margin-bottom:2px}

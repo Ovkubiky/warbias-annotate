@@ -3,7 +3,7 @@
 const LEVELS = [
   { e: "🙂" }, { e: "😕" }, { e: "😠" }, { e: "🚨" }   // emoji follows the slider; no labels in between
 ];
-const ENDS = ["Побутове упередження", "Виправдовує переслідування"];
+const ENDS = ["Образливо, але без наслідків", "Загрожує безпеці людей"];
 const ACTOR = { veteran: "Ветерани", idp: "ВПО" };
 const MODES = [["all", "Усе разом", "Усе", "Картки йдуть упереміш"], ["tri", "Трійки", "Трійки", "S · C · U"], ["qa", "Питання", "Питання", "Відповідь і якість"], ["sev", "Небезпечність", "Небезпечність", "Наскільки небезпечний стереотип"]];
 // typical problems differ by card type
@@ -261,7 +261,8 @@ function render() {
         ${item.ex.length > 1 ? `<div class="also">${item.ex.slice(1).map(e => `<span>${esc(e)}</span>`).join("")}</div>` : ""}
       </div>
       <div class="sev-foot">
-        <div class="sev-q">Наскільки небезпечно, якщо люди в це повірять?</div>
+        <div class="sev-pre">Уявіть, що в це повірило багато людей.</div>
+        <div class="sev-q">Наскільки серйозні наслідки це матиме для тих, про кого це сказано?</div>
         <div class="sev-hint" id="sevEmpty">Торкніться шкали й потягніть смайлик</div>
         <div class="slider" id="slider" role="slider" tabindex="0" aria-label="Небезпечність стереотипу" aria-valuemin="0" aria-valuemax="100">
           <div class="track"></div><div class="zones"><span>${ENDS[0]}</span><span>${ENDS[1]}</span></div>
@@ -468,7 +469,8 @@ function reviewOf(c) {
     answer: c.type === "qa" ? c.answer : null,
     raw: c.type === "sev" ? Math.round(c.raw * 1000) / 1000 : null,
     position: ++st.position, session: st.session, dwell_ms: Date.now() - c.shownAt,
-    result: focusOf(c) === null ? result : { ...result, focus: focusOf(c) }
+    // severity: which wording of the scale was shown (2 = "наслідки … Образливо, але без наслідків / Загрожує безпеці людей")
+    result: c.type === "sev" ? { ...result, scale: 2 } : focusOf(c) === null ? result : { ...result, focus: focusOf(c) }
   };
 }
 function commit(dir) {
@@ -566,7 +568,7 @@ function openQaHelp() {
     <div class="row"><button class="btn ghost" data-replay>Знайомство ще раз</button><button class="btn" data-close>Зрозуміло</button></div>`);
 }
 function openRubric() {
-  sheet(`<h3>Небезпечність стереотипу</h3><p>Оцінюйте сам стереотип, а не формулювання. Запитайте себе: що станеться з людиною, якщо в це повірять? Тягніть смайлик так далеко, як вважаєте за потрібне.</p>
+  sheet(`<h3>Небезпечність стереотипу</h3><p>Оцінюйте сам стереотип, а не формулювання. Уявіть, що в це повірило багато людей: наскільки серйозні наслідки це матиме для тих, про кого це сказано? Тягніть смайлик так далеко, як вважаєте за потрібне.</p>
     <div class="list">
       <div class="li"><span class="e">🙂</span><b>${ENDS[0]}</b><span>Незручність у буденних справах: оренда, звички, спілкування, продуктивність.</span></div>
       <div class="li"><span class="e">🚨</span><b>${ENDS[1]}</b><span>Лояльність і безпека: «підтримують Росію», «співпрацюють з окупаційною владою», «винні у війні». Також звинувачення у злочинності й симуляції інвалідності.</span></div>
