@@ -72,9 +72,8 @@ const cur = () => st.cur || {};
 const sentEl = k => card && card.querySelector(`.sent[data-k="${k}"]`);
 
 function buildSteps() {
-  const name = (st.me && st.me.name) ? st.me.name.split(" ")[0] : "";
   return [
-    { modal: true, html: `<div class="onb-hero">👋</div><h3>Привіт${name ? ", " + esc(name) : ""}!</h3>
+    { modal: true, html: `<div class="onb-hero">👋</div><h3>Привіт!</h3>
         <p>Ми вчимо мовну модель «забувати» упередження про ветеранів і ВПО. Для цього потрібні якісні приклади — і саме ви їх перевіряєте.</p>
         <p>Зараз 3 тренувальні картки, щоб усе спробувати руками. Це близько 2 хвилин, у датасет нічого не потрапить.</p>`,
       primary: "Почати знайомство", secondary: "Пропустити" },
