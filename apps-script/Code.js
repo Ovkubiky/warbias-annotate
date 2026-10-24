@@ -591,7 +591,9 @@ function dashboard_(me) {
     d.generated = new Date().toISOString();
     cPut_('dash', d, 120);
   }
-  var admin = me.admin === true || String(me.admin).toUpperCase() === 'TRUE';
+  // Read the flag from the sheet, not the 5-minute people cache, so a fresh TRUE works at once.
+  var row = rows_('annotators').filter(function (a) { return String(a.id) === String(me.id); })[0] || me;
+  var admin = row.admin === true || String(row.admin).toUpperCase() === 'TRUE';
   var out = JSON.parse(JSON.stringify(d));
   if (!admin) delete out.admin;
   out.ok = true; out.isAdmin = admin; out.me = me.id;
