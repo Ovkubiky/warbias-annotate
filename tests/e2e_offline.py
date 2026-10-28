@@ -26,7 +26,7 @@ async def main():
         pg = await (await b.new_context(viewport={"width": 390, "height": 844})).new_page()
         errors = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
-        state = {"online": True, "sample": [], "submitted": [], "next_counts": []}
+        state = {"auto": False, "online": True, "sample": [], "submitted": [], "next_counts": []}
 
         async def backend(route):
             if not state["online"]:
@@ -35,7 +35,7 @@ async def main():
             a, body = req.get("action"), {"ok": True}
             stats = {"done": 0, "remaining": {"all": 99, "tri": 99, "qa": 99, "sev": 99}, "team": {"done": 0, "total": 100}}
             if a == "hello":
-                body.update(me={"id": "a99", "name": "Тест", "onboarded": True}, config={"dwell_ms": 0, "break_every": 999}, stats=stats)
+                body.update(me={"id": "a99", "name": "Тест", "onboarded": True, "offline": state["auto"]}, config={"dwell_ms": 0, "break_every": 999}, stats=stats)
             elif a == "next":
                 state["next_counts"].append((req.get("count"), bool(req.get("offline"))))
                 skip = set(req.get("exclude") or [])
@@ -87,6 +87,15 @@ async def main():
         sent = [i for batch in state["submitted"] for i in batch]
         check("all offline answers sent", set(swiped) <= set(sent))
         check("sent as a batch", any(len(x) >= 5 for x in state["submitted"]))
+
+        # offline = TRUE in the annotators tab: the pack fills up by itself, no button needed
+        state["auto"] = True
+        await pg.evaluate("ls('wb-pack', null)")
+        await pg.reload()
+        await pg.wait_for_function("loadPack() && loadPack().cards.length >= 10", timeout=10000)
+        check("auto pack without the button", (await pg.evaluate("loadPack()"))["mode"] == "tri")
+        n0 = len((await pg.evaluate("loadPack()"))["cards"])
+        check("auto pack reasonably full", n0 >= 10)
         check("no page errors", not errors)
         await b.close()
     print(f"passed {ok}, failed {len(bad)}: {bad}")

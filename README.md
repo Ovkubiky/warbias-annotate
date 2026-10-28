@@ -75,7 +75,7 @@ round-1 edit, ✕ and comment for the dataset authors.
 
 ## Offline work
 
-Mode menu → «📦 Взяти 40 карток з собою» downloads a pack (`next` with `offline: true`: up to 40 cards, reserved for 6 hours instead of 20 minutes) into `localStorage`. The queue draws from the pack first, answers wait in `wb-pending` and go up in batches of 20 once the connection is back. `sw.js` keeps the page itself available offline, and a start without a connection reuses the last greeting. Packs older than 24 hours are dropped. Test: `tests/e2e_offline.py`.
+Mode menu → «📦 Взяти 40 карток з собою» downloads a pack (`next` with `offline: true`: up to 40 cards, reserved for 6 hours instead of 20 minutes) into `localStorage`. The queue draws from the pack first, answers wait in `wb-pending` and go up in batches of 20 once the connection is back. `sw.js` keeps the page itself available offline, and a start without a connection reuses the last greeting. Packs older than 24 hours are dropped. With `offline` = TRUE in the annotators tab the app keeps the pack topped up by itself (refills below 10 cards while online); it is per person on purpose, since packs reserve cards for 6 hours. Test: `tests/e2e_offline.py`.
 
 ## Deploy
 

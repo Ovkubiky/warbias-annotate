@@ -144,12 +144,24 @@ function fromPack(exclude) {
   return st.queue.length > before;
 }
 const seenIds = () => [...st.queue.map(c => c.id), ...(st.cur ? [st.cur.id] : []), ...pending.map(p => p.item_id), ...st.history.map(h => h.cur.id)];
+/** Tops the pack up to PACK_SIZE for the current mode, keeping cards already taken along. */
 async function takePack() {
-  const r = await st.api.next(st.mode, seenIds(), PACK_SIZE, true);
+  const old = loadPack(), keep = old && old.mode === st.mode ? old.cards : [];
+  const r = await st.api.next(st.mode, [...seenIds(), ...keep.map(c => c.item_id)], PACK_SIZE - keep.length, true);
   if (!r.ok) throw new Error(r.error);
-  savePack({ mode: st.mode, at: Date.now(), cards: r.cards });
-  return r.cards.length;
+  savePack({ mode: st.mode, at: Date.now(), cards: [...keep, ...r.cards] });
+  return keep.length + r.cards.length;
 }
+/* People with offline = TRUE in the annotators tab keep a pack topped up automatically while online. */
+let autoPacking = false;
+function autoPack() {
+  if (!st.me || !st.me.offline || autoPacking || !navigator.onLine || (st.api && st.api.demo)) return;
+  const p = loadPack();
+  if (p && p.mode === st.mode && p.cards.length >= PACK_SIZE / 4) return;
+  autoPacking = true;
+  takePack().catch(() => {}).finally(() => { autoPacking = false; });
+}
+addEventListener("online", autoPack);
 
 /* ---------- card queue ---------- */
 async function fill() {
@@ -175,6 +187,7 @@ async function advance() {
   st.cur = st.queue.shift() || null;
   render();
   fill();
+  autoPack();
 }
 
 /* ---------- rendering ---------- */

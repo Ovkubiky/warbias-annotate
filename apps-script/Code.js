@@ -6,7 +6,7 @@
 
 var TABS = {
   config: ['key', 'value', 'note'],
-  annotators: ['id', 'name', 'token', 'link', 'active', 'created', 'onboarded', 'practice', 'admin'],
+  annotators: ['id', 'name', 'token', 'link', 'active', 'created', 'onboarded', 'practice', 'admin', 'offline'],
   items: ['item_id', 'type', 'gold', 'group', 'payload'],
   reviews: ['review_id', 'ts', 'day', 'annotator', 'item_id', 'type', 'outcome', 'answer', 'raw', 'position', 'session', 'dwell_ms', 'result', 'undone', 'edits', 'flags', 'source', 'name']
 };
@@ -395,7 +395,7 @@ function handle_(req) {
 function hello_(me) {
   var c = config_();
   return {
-    ok: true, me: { id: me.id, name: me.name, onboarded: !!me.onboarded },
+    ok: true, me: { id: me.id, name: me.name, onboarded: !!me.onboarded, offline: me.offline === true || String(me.offline).toUpperCase() === 'TRUE' },
     config: { dwell_ms: +c.dwell_ms || 3000, break_every: +c.break_every || 25 },
     stats: stats_(me.id)
   };
@@ -571,7 +571,7 @@ function dashboard_(me) {
   var d = cGet_('dash');
   if (!d) {
     var sh = ss_().getSheetByName('annotators');
-    if (people_().length && !('admin' in people_()[0])) { ensureCols_(sh, TABS.annotators); cDel_('ann'); }
+    if (people_().length && TABS.annotators.some(function (k) { return !(k in people_()[0]); })) { ensureCols_(sh, TABS.annotators); cDel_('ann'); }
     var reviews = rows_('reviews').map(function (r) {
       var res = {};
       try { res = JSON.parse(r.result || '{}'); } catch (e) {}
