@@ -18,7 +18,7 @@ function RemoteApi(url, token) {
   return {
     demo: false,
     hello: () => call("hello", {}),
-    next: (mode, exclude, count) => call("next", { mode, exclude, count }),
+    next: (mode, exclude, count, offline) => call("next", { mode, exclude, count, offline }),
     submit: (reviews) => call("submit", { reviews }),
     undo: (review_id) => call("undo", { review_id }),
     board: () => call("board", {}),

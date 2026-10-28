@@ -407,8 +407,10 @@ function next_(me, req) {
     var c = config_(), opts = opts_(c), items = itemIndex_(), reviews = reviewIndex_();
     var cache = CacheService.getScriptCache();
     var leases = JSON.parse(cache.get('leases') || '{}'), now = Date.now();
+    // offline pack: up to 40 cards reserved for 6 hours, so someone can work without a connection
+    var offline = !!req.offline, lease = offline ? 360 : opts.leaseMinutes;
     var picked = pickNext(items.list, reviews, leases, {
-      annotator: me.id, mode: req.mode || 'all', count: Math.min(+req.count || opts.batch, 5),
+      annotator: me.id, mode: req.mode || 'all', count: Math.min(+req.count || opts.batch, offline ? 40 : 5),
       exclude: req.exclude || [], now: now
     }, opts);
     Object.keys(leases).forEach(function (k) {
@@ -417,7 +419,7 @@ function next_(me, req) {
     });
     picked.forEach(function (it) {
       (leases[it.item_id] = (leases[it.item_id] || []).filter(function (l) { return l.a !== me.id; }))
-        .push({ a: me.id, exp: now + opts.leaseMinutes * 60000 });
+        .push({ a: me.id, exp: now + lease * 60000 });
     });
     cache.put('leases', JSON.stringify(leases), 21600);
     var cards = payloads_(picked).map(function (x) { return { item_id: x.it.item_id, type: x.it.type, payload: x.payload }; });

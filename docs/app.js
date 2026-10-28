@@ -124,9 +124,37 @@ function updCount() {
   $("#prog").parentElement.title = t ? `Команда: ${t.done} з ${t.total} карток мають усі потрібні оцінки` : "";
 }
 
+/* ---------- offline pack: cards taken along for work without a connection ---------- */
+const PACK_KEY = "wb-pack", PACK_SIZE = 40, PACK_TTL = 24 * 3600 * 1000;
+function loadPack() {
+  try {
+    const p = JSON.parse(ls(PACK_KEY) || "null");
+    return p && p.cards.length && Date.now() - p.at < PACK_TTL ? p : null;   // stale packs likely got their labels elsewhere
+  } catch (_) { return null; }
+}
+const savePack = p => ls(PACK_KEY, p && p.cards.length ? JSON.stringify(p) : null);
+/** Moves pack cards into the live queue; true when the pack supplied something. */
+function fromPack(exclude) {
+  const p = loadPack();
+  if (!p || p.mode !== st.mode) return false;
+  const skip = new Set(exclude), before = st.queue.length;
+  p.cards = p.cards.filter(c => !skip.has(c.item_id));
+  while (p.cards.length && st.queue.length < 2) st.queue.push(toCur(p.cards.shift()));
+  savePack(p);
+  return st.queue.length > before;
+}
+const seenIds = () => [...st.queue.map(c => c.id), ...(st.cur ? [st.cur.id] : []), ...pending.map(p => p.item_id), ...st.history.map(h => h.cur.id)];
+async function takePack() {
+  const r = await st.api.next(st.mode, seenIds(), PACK_SIZE, true);
+  if (!r.ok) throw new Error(r.error);
+  savePack({ mode: st.mode, at: Date.now(), cards: r.cards });
+  return r.cards.length;
+}
+
 /* ---------- card queue ---------- */
 async function fill() {
   if (st.fetching || st.exhausted || st.queue.length >= 2) return;
+  if (fromPack(seenIds())) return;
   st.fetching = true;
   try {
     const exclude = [...st.queue.map(c => c.id), ...(st.cur ? [st.cur.id] : []), ...pending.map(p => p.item_id), ...st.history.map(h => h.cur.id)];
@@ -625,12 +653,30 @@ $("#trophyBtn").onclick = async () => {
 };
 $("#modeBtn").onclick = () => {
   const rem = (st.stats && st.stats.remaining) || {};
-  sheet(`<h3>Режим</h3><div class="list">${MODES.map(([id, n, , d]) => `<button class="choice" data-mode="${id}" aria-pressed="${st.mode === id}"><span style="flex:1"><b style="all:unset;font-weight:600">${n}</b><br><span style="font-size:12px;color:var(--muted)">${d}</span></span><span style="font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums">${rem[id] ?? "…"} залишилось</span></button>`).join("")}</div>`,
-  sh => sh.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => {
-    st.mode = b.dataset.mode; st.queue = []; st.cur = null; st.sinceBreak = 0; st.history = []; st.exhausted = false; // undo across modes would land on a card from another deck
-    ls("wb-mode", st.mode);
-    $("#modeBtn").textContent = MODES.find(m => m[0] === st.mode)[2] + " ▾"; sh.remove(); advance();
-  }));
+  const pk = loadPack(), left = pk && pk.mode === st.mode ? pk.cards.length : 0;
+  const packLabel = `📦 Взяти ${PACK_SIZE} карток з собою`;
+  sheet(`<h3>Режим</h3><div class="list">${MODES.map(([id, n, , d]) => `<button class="choice" data-mode="${id}" aria-pressed="${st.mode === id}"><span style="flex:1"><b style="all:unset;font-weight:600">${n}</b><br><span style="font-size:12px;color:var(--muted)">${d}</span></span><span style="font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums">${rem[id] ?? "…"} залишилось</span></button>`).join("")}</div>
+    <button class="btn ghost" id="packBtn" style="width:100%;margin-top:14px">${packLabel}</button>
+    <p style="font-size:12px;color:var(--muted);margin:6px 0 0">Для роботи без інтернету: картки збережуться на пристрої, а відповіді ми надішлемо, щойно з'явиться зв'язок.${left ? ` Зараз з собою: ${left}.` : ""}</p>`,
+  sh => {
+    sh.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => {
+      st.mode = b.dataset.mode; st.queue = []; st.cur = null; st.sinceBreak = 0; st.history = []; st.exhausted = false; // undo across modes would land on a card from another deck
+      ls("wb-mode", st.mode);
+      $("#modeBtn").textContent = MODES.find(m => m[0] === st.mode)[2] + " ▾"; sh.remove(); advance();
+    });
+    const btn = sh.querySelector("#packBtn");
+    btn.onclick = async () => {
+      btn.disabled = true; btn.textContent = "Завантажую…";
+      try {
+        const n = await takePack();
+        sh.remove();
+        toast(n ? `Готово: ${n} карток з собою. Можна працювати без інтернету 🌻` : "У цьому режимі карток уже не лишилось.");
+      } catch (_) {
+        btn.disabled = false; btn.textContent = packLabel;
+        toast("Щоб завантажити картки, потрібен інтернет.");
+      }
+    };
+  });
 };
 
 /* ---------- boot ---------- */
@@ -648,7 +694,16 @@ async function boot() {
   $("#modeBtn").textContent = (MODES.find(m => m[0] === st.mode) || MODES[0])[2] + " ▾";
   renderState("loading");
   let r;
-  try { r = await st.api.hello(); } catch (_) { renderState("error"); return; }
+  try { r = await st.api.hello(); if (r && r.ok) ls("wb-hello", JSON.stringify(r)); }
+  catch (_) {
+    // offline start: reuse the last greeting when there are cards taken along
+    const pk = loadPack();
+    try { r = JSON.parse(ls("wb-hello") || "null"); } catch (_) { r = null; }
+    if (!r || !pk) { renderState("error"); return; }
+    st.mode = pk.mode; ls("wb-mode", st.mode);
+    $("#modeBtn").textContent = (MODES.find(m => m[0] === st.mode) || MODES[0])[2] + " ▾";
+    setTimeout(() => toast("Немає інтернету: працюємо з картками, взятими з собою."), 600);
+  }
   if (!r.ok) {
     if (r.error === "unknown_token") { ls("wb-token", null); renderState("login"); } else { renderState("error"); }
     return;
@@ -661,3 +716,5 @@ async function boot() {
   setTimeout(loadBoard, 4000);   // warm the leaderboard so 🏆 opens instantly
 }
 addEventListener("DOMContentLoaded", boot);
+// keeps the page itself available offline (cards come from the pack, answers wait in wb-pending)
+if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});

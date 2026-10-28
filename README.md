@@ -73,6 +73,10 @@ round-1 edit, ✕ and comment for the dataset authors.
 - Each triplet and QA card shows one focus question ("Does C contradict this exact stereotype?" …), chosen per
   person and card; its index is stored in `result.focus`, so recall can be compared by question.
 
+## Offline work
+
+Mode menu → «📦 Взяти 40 карток з собою» downloads a pack (`next` with `offline: true`: up to 40 cards, reserved for 6 hours instead of 20 minutes) into `localStorage`. The queue draws from the pack first, answers wait in `wb-pending` and go up in batches of 20 once the connection is back. `sw.js` keeps the page itself available offline, and a start without a connection reuses the last greeting. Packs older than 24 hours are dropped. Test: `tests/e2e_offline.py`.
+
 ## Deploy
 
 1. `clasp login -u ucu` with the UCU Google account.
